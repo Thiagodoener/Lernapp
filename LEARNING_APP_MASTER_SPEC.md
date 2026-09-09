@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.8 — 09.09.2026
+## Version 3.9 — 09.09.2026
 
 ### Leitprinzip
 
@@ -27,9 +27,9 @@ Vor dem Löschen muss eine eindeutige Bestätigung erscheinen. Nach erfolgreiche
 
 ## KI-Betriebsmodi
 
-**Status: FIX auf Architekturebene**
+**Status: IMPLEMENTIERT**
 
-Die App unterstützt langfristig drei Modi:
+Die App unterstützt drei Modi:
 
 ### LOCAL
 - keine laufenden KI-API-Kosten
@@ -38,17 +38,52 @@ Die App unterstützt langfristig drei Modi:
 
 ### AUTO
 - Standardmodus
-- lokale Verarbeitung zuerst
-- Cloud-KI nur dort, wo semantisches Sprachverständnis einen klaren Qualitätsvorteil bringt
+- nutzt den besten verfügbaren Provider
+- fällt auf LOCAL zurück, solange keine Cloud-KI konfiguriert ist
 - Ziel: hohe Qualität bei sehr niedrigen laufenden Kosten
 
 ### CLOUD
 - hochwertige Cloud-KI für semantische Aufgaben
 - vorgesehen für Zusammenfassungen, Lernzielgenerierung, Karteikarten, Quizfragen, Tutor-Erklärungen und Bewertung freier Antworten
+- erfordert sicheren Backend-/Proxy-Endpunkt; API-Schlüssel bleiben aus dem Browser heraus
+
+## AIService
+
+**Status: IMPLEMENTIERT**
+
+Cloud- und Local-Verarbeitung werden hinter einer austauschbaren `AIService`-/Provider-Schnittstelle gekapselt. Die Lernlogik darf nicht direkt an einen einzelnen Anbieter gekoppelt sein.
+
+Aktuelle Schnittstellen:
+
+- `summarize`
+- `tutor`
+- `generateLearningGoals`
+- `generateFlashcards`
+- `evaluateFreeAnswer`
+
+## Zusammenfassungen über AIService
+
+**Status: IMPLEMENTIERT**
+
+Dokument-Zusammenfassungen laufen über `AIService.summarize()`.
+
+Unterstützte Längen:
+
+- Kurz
+- Standard
+- Ausführlich
+
+Die erzeugte Zusammenfassung wird am Dokument lokal gespeichert, inklusive:
+
+- Provider
+- Confidence
+- gewählter Länge
+- Erstellzeitpunkt
+- aktivem KI-Modus
+
+Im LOCAL-Modus bleibt die Funktion vollständig kostenfrei. AUTO nutzt aktuell LOCAL als Fallback, bis ein Cloud-Provider sicher angebunden ist. CLOUD meldet transparent, wenn noch kein Backend-Endpunkt konfiguriert ist.
 
 ## Architekturregel
-
-Cloud-KI wird hinter einer austauschbaren `AIProvider`-/`AIService`-Schnittstelle gekapselt. Die Lernlogik darf nicht direkt an einen einzelnen Anbieter gekoppelt sein.
 
 Sensible API-Schlüssel dürfen niemals fest im Browser-Code einer öffentlich ausgelieferten PWA hinterlegt werden. Für echte Cloud-KI ist daher ein sicherer Proxy bzw. Backend-Endpunkt vorzusehen.
 
@@ -58,19 +93,19 @@ Deterministische Funktionen wie Datenhaltung, Coverage, Lernplanung, Fortschritt
 
 ## Nächste Implementierungsschritte
 
-1. AI-Modus in den Einstellungen (`LOCAL`, `AUTO`, `CLOUD`).
-2. Einheitliche `AIService`-Schnittstelle.
-3. Lokaler Fallback für Zusammenfassung, Lernziele und Fragen.
-4. Sichere Cloud-Anbindung über Proxy/Backend.
-5. Kosten-/Nutzungslimit pro Monat und transparente Anzeige in der App.
-6. Freie Antwortbewertung mit lokalem Vorfilter und optionaler Cloud-Eskalation.
+1. Lernzielgenerierung über `AIService` führen.
+2. Karteikartengenerierung über `AIService` führen.
+3. Freie Antwortbewertung mit lokalem Vorfilter und optionaler Cloud-Eskalation.
+4. Tutor vollständig über `AIService` anbinden.
+5. Sichere Cloud-Anbindung über Proxy/Backend.
+6. Kosten-/Nutzungslimit pro Monat und transparente Anzeige in der App.
 
-## Changelog 3.8
+## Changelog 3.9
 
-- vollständige Materiallöschung verbindlich definiert
-- Bereinigung abhängiger Lerndaten festgelegt
-- Schutz nicht betroffener Lernpläne und Prüfungssitzungen festgelegt
-- Hybrid-KI-Architektur mit `LOCAL`, `AUTO`, `CLOUD` festgelegt
-- `AUTO` als Standardmodus vorgesehen
-- Cloud-KI von deterministischer Lernlogik entkoppelt
-- sichere Schlüsselverwaltung als Architekturvorgabe ergänzt
+- KI-Betriebsmodus im Profil als implementiert markiert
+- `AUTO`, `LOCAL`, `CLOUD` technisch angebunden
+- zentrale `AIService`-Schnittstelle dokumentiert
+- Dokument-Zusammenfassungen auf `AIService.summarize()` umgestellt
+- Kurz/Standard/Ausführlich ergänzt
+- Summary-Metadaten werden am Dokument gespeichert
+- PWA-Cache auf v5 angehoben
