@@ -1,6 +1,6 @@
-const CACHE = "lernapp-pwa-v2";
+const CACHE = "lernapp-pwa-v3";
 const LOCAL = [
-  "./","./index.html","./styles.css","./app.js",
+  "./","./index.html","./styles.css","./app.js","./material-delete.js",
   "./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png"
 ];
 
