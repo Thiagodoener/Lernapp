@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.9 — 09.09.2026
+## Version 3.10 — 09.09.2026
 
 ### Leitprinzip
 
@@ -73,15 +73,26 @@ Unterstützte Längen:
 - Standard
 - Ausführlich
 
-Die erzeugte Zusammenfassung wird am Dokument lokal gespeichert, inklusive:
+Die erzeugte Zusammenfassung wird am Dokument lokal gespeichert, inklusive Provider, Confidence, gewählter Länge, Erstellzeitpunkt und aktivem KI-Modus.
 
-- Provider
-- Confidence
-- gewählter Länge
-- Erstellzeitpunkt
-- aktivem KI-Modus
+## Lernziel- und Karteikartengenerierung über AIService
 
-Im LOCAL-Modus bleibt die Funktion vollständig kostenfrei. AUTO nutzt aktuell LOCAL als Fallback, bis ein Cloud-Provider sicher angebunden ist. CLOUD meldet transparent, wenn noch kein Backend-Endpunkt konfiguriert ist.
+**Status: IMPLEMENTIERT**
+
+Der Materialimport wird vor dem bisherigen Import-Handler durch eine zentrale AI-Import-Pipeline übernommen.
+
+Ablauf:
+
+1. PDF/TXT/Markdown wird lokal extrahiert; Scan-PDF-Seiten nutzen OCR-Fallback.
+2. Pro Quellseite werden Lernziele ausschließlich über `AIService.generateLearningGoals()` erzeugt.
+3. Die erzeugten Lernziele behalten `documentId`, `sourcePage`, `sourceSnippet`, Provider, AI-Modus und Confidence als Provenienz.
+4. Karteikarten werden anschließend ausschließlich über `AIService.generateFlashcards()` erzeugt.
+5. Jede Karte erhält einen echten FSRS-Ausgangszustand und behält Provider-/Modus-Metadaten.
+6. Mastery startet weiterhin konservativ bei `NOT_ASSESSED`.
+7. Der bestehende Tagesplan wird für den aktuellen Tag invalidiert und beim nächsten Aufruf aus den neuen Lernzielen neu erzeugt.
+8. Bei einem Importfehler werden bereits angelegte Dokument-, Lernziel-, Mastery- und Karteikartendaten wieder bereinigt.
+
+Im LOCAL-Modus bleibt diese Pipeline vollständig kostenfrei. AUTO nutzt aktuell LOCAL, solange kein Cloud-Provider sicher konfiguriert ist. CLOUD bricht transparent ab, wenn kein sicherer Cloud-Endpunkt verfügbar ist.
 
 ## Architekturregel
 
@@ -93,19 +104,22 @@ Deterministische Funktionen wie Datenhaltung, Coverage, Lernplanung, Fortschritt
 
 ## Nächste Implementierungsschritte
 
-1. Lernzielgenerierung über `AIService` führen.
-2. Karteikartengenerierung über `AIService` führen.
-3. Freie Antwortbewertung mit lokalem Vorfilter und optionaler Cloud-Eskalation.
-4. Tutor vollständig über `AIService` anbinden.
-5. Sichere Cloud-Anbindung über Proxy/Backend.
-6. Kosten-/Nutzungslimit pro Monat und transparente Anzeige in der App.
+1. Freie Antwortbewertung mit lokalem Vorfilter und optionaler Cloud-Eskalation über `AIService.evaluateFreeAnswer()`.
+2. Prüfungssimulation ebenfalls auf dieselbe Bewertungslogik umstellen.
+3. Tutor vollständig über `AIService.tutor()` anbinden.
+4. Sichere Cloud-Anbindung über Proxy/Backend.
+5. Kosten-/Nutzungslimit pro Monat und transparente Anzeige in der App.
+6. Import-Pipeline und KI-Funktionen auf echtem iPhone/iPad mit PDF/OCR testen.
 
-## Changelog 3.9
+## Changelog 3.10
 
-- KI-Betriebsmodus im Profil als implementiert markiert
-- `AUTO`, `LOCAL`, `CLOUD` technisch angebunden
-- zentrale `AIService`-Schnittstelle dokumentiert
-- Dokument-Zusammenfassungen auf `AIService.summarize()` umgestellt
-- Kurz/Standard/Ausführlich ergänzt
-- Summary-Metadaten werden am Dokument gespeichert
-- PWA-Cache auf v5 angehoben
+- Materialimport auf zentrale AIService-Pipeline umgestellt
+- Lernziele laufen über `AIService.generateLearningGoals()`
+- Karteikarten laufen über `AIService.generateFlashcards()`
+- Quell- und Provider-Provenienz an generierten Inhalten ergänzt
+- FSRS-Ausgangszustand für AI-generierte Karten beibehalten
+- Import-Rollback bei Fehlern ergänzt
+- bestehender Tagesplan wird nach neuem Import invalidiert
+- `ai-service.js` wird vor `app.js` geladen
+- neue Datei `import-ai.js` ergänzt
+- PWA-Cache auf v6 angehoben
