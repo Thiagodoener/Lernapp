@@ -1,0 +1,8 @@
+name = "lernapp-ai-proxy"
+main = "src/index.js"
+compatibility_date = "2026-09-10"
+
+[vars]
+# Set this to the exact origin of your installed PWA, for example:
+# ALLOWED_ORIGIN = "https://thiagodoener.github.io"
+# OPENAI_MODEL = "<current supported model id>"
