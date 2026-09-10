@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.13 — 10.09.2026
+## Version 3.14 — 10.09.2026
 
 ### Leitprinzip
 
@@ -28,9 +28,9 @@ Ein importiertes Lernmaterial kann vollständig gelöscht werden. Beim Löschen 
 - Ziel: hohe Qualität bei niedrigen laufenden Kosten
 
 ### CLOUD
-- vorgesehen für höchste semantische Qualität
-- benötigt einen sicheren Backend-/Proxy-Endpunkt
-- API-Schlüssel dürfen niemals im öffentlich ausgelieferten Browser-Code gespeichert werden
+- für höchste semantische Qualität vorbereitet
+- nutzt ausschließlich einen sicheren Backend-/Proxy-Endpunkt
+- der eigentliche KI-API-Schlüssel bleibt serverseitig und wird niemals im Browser gespeichert
 
 ## AIService
 
@@ -44,6 +44,13 @@ Zentrale Schnittstellen:
 - `evaluateFreeAnswer`
 
 Cloud- und Local-Verarbeitung bleiben vollständig hinter dieser Schnittstelle gekapselt.
+
+Zusätzlich implementiert:
+- persistierter Cloud-Endpoint in den lokalen App-Einstellungen
+- optionaler persönlicher Zugriffsschlüssel für den Proxy
+- `testCloud()`-Verbindungstest
+- transparente Cloud-Verfügbarkeitsanzeige
+- AUTO fällt bei fehlender Cloud-Verbindung weiterhin auf LOCAL zurück
 
 ## Zusammenfassungen über AIService
 
@@ -77,18 +84,7 @@ Bewertungslogik:
 - `CLOUD`: semantische Bewertung über den konfigurierten sicheren Cloud-Endpunkt.
 - `AUTO`: lokale Vorbewertung/Fallback und optionale Cloud-Eskalation bei unsicheren Fällen, sobald CLOUD verfügbar ist.
 
-Gemeinsame Evidence-Pipeline:
-- Score
-- Confidence
-- Provider
-- Evaluations-Policy
-- Feedback
-- Dimension (`RECALL`, `UNDERSTANDING`, `APPLICATION`, `TRANSFER`)
-- `independentRecall=true`
-- Quelle (`SELF_TEST` oder `EXAM_SIMULATION`)
-- bei Prüfungen zusätzlich Exam-, Session- und Item-Referenz
-
-Nach jeder bewerteten Antwort werden Mastery und Knowledge Gap deterministisch neu berechnet. Der Tagesplan wird invalidiert, damit neue Schwächen in die Planung zurückfließen.
+Gemeinsame Evidence-Pipeline speichert Score, Confidence, Provider, Evaluations-Policy, Feedback, Wissensdimension, Quelle sowie bei Prüfungen Exam-/Session-/Item-Referenzen. Danach werden Mastery und Knowledge Gap deterministisch neu berechnet und der Tagesplan invalidiert.
 
 ## Prüfungssimulation
 
@@ -114,49 +110,76 @@ LOCAL-Tutor:
 - extraktiv und quellengebunden
 - priorisiert Sätze aus dem Material anhand textlicher Überschneidung mit der Nutzerfrage
 - ergänzt kein externes Wissen
-- Provider-Policy `LOCAL_SOURCE_EXTRACTIVE`
-- konservative Confidence 0.30
+- konservative Confidence
 
-AUTO/CLOUD:
-- nutzen die zentrale Provider-Auswahl des `AIService`
-- sobald ein sicherer Cloud-Endpunkt verfügbar ist, kann AUTO für Tutorfragen CLOUD verwenden
-- CLOUD erhält denselben strukturierten Quellenkontext und die letzten Gesprächsnachrichten
+Tutor-Verlauf wird lokal pro Lernziel gespeichert. Tutor-Antworten verändern Mastery nicht automatisch.
 
-Tutor-Verlauf:
-- wird lokal im bestehenden `settings`-Store pro Lernziel gespeichert
-- bleibt damit im JSON-Backup enthalten, ohne eine Datenbankmigration auszulösen
-- letzte Nachrichten werden als Gesprächskontext an den Provider übergeben
-- Nutzer kann den Tutor-Verlauf pro Lernziel löschen
+## Sichere Cloud-Anbindung
 
-Die UI zeigt Provider, Confidence und Policy an. Die Tutorhistorie verändert Mastery nicht automatisch; Wissensstand darf weiterhin nur aus Assessment-Evidence abgeleitet werden.
+**Status: CODESEITIG IMPLEMENTIERT, DEPLOYMENT NOCH AUSSTEHEND**
+
+Als Referenzimplementierung ist ein Cloudflare-Worker-Proxy unter `cloud-worker/` enthalten.
+
+Sicherheitsregeln:
+- OpenAI-API-Key nur als `OPENAI_API_KEY` Worker-Secret
+- optionaler persönlicher `LERNAPP_ACCESS_KEY` als separates Worker-Secret
+- PWA speichert nur Proxy-URL und optional den persönlichen Proxy-Zugriffsschlüssel lokal
+- kein API-Key im öffentlich ausgelieferten GitHub-Pages-Code
+- CORS kann mit `ALLOWED_ORIGIN` auf die PWA-Origin begrenzt werden
+- Browser darf keine beliebigen Prompts oder Modellparameter an den Proxy schicken; nur die fest definierten Lernapp-Aufgaben sind zulässig
+- OpenAI-Anfragen verwenden `store:false`
+- serverseitige Textlimits begrenzen Kosten und Missbrauch
+- strukturierte JSON-Ausgaben werden per JSON-Schema angefordert und serverseitig geparst
+
+Unterstützte Proxy-Aufgaben:
+- `summarize`
+- `tutor`
+- `generateLearningGoals`
+- `generateFlashcards`
+- `evaluateFreeAnswer`
+- `health` für den Verbindungstest
+
+### Cloud-Konfiguration in der PWA
+
+Im Profil existiert nun eine eigene Karte **Cloud-Verbindung** mit:
+- Proxy-Endpunkt
+- persönlichem Zugriffsschlüssel
+- Speichern
+- Verbindung testen
+- Cloud-Verbindung entfernen
+
+Der Zugriffsschlüssel ist nicht der OpenAI-Key. Er schützt lediglich den persönlichen Proxy vor fremder Nutzung und wird nur lokal im Browser gespeichert.
 
 ## Architekturregel
-
-Sensible API-Schlüssel dürfen niemals fest im Browser-Code einer öffentlich ausgelieferten PWA hinterlegt werden. Für echte Cloud-KI ist ein sicherer Proxy bzw. Backend-Endpunkt erforderlich.
 
 Tutor-Antworten, Zusammenfassungen und generierte Inhalte dürfen den deterministischen Mastery-Zustand nicht direkt setzen. Mastery wird nur aus Evidence abgeleitet.
 
 ## Kostenprinzip
 
-Datenhaltung, Coverage, Lernplanung, Fortschritt, FSRS, Statistiken und Statusübergänge bleiben ohne kostenpflichtige Cloud-KI nutzbar. Im AUTO-Modus sollen Cloud-Kosten nur bei semantisch anspruchsvollen Aufgaben entstehen.
+Datenhaltung, Coverage, Lernplanung, Fortschritt, FSRS, Statistiken und Statusübergänge bleiben ohne kostenpflichtige Cloud-KI nutzbar. GitHub Pages verursacht in der aktuellen persönlichen Nutzung keine laufenden App-Kosten. Der optionale Proxy kann innerhalb eines geeigneten Free-Tiers betrieben werden; externe KI-API-Nutzung kann trotzdem verbrauchsabhängige Kosten verursachen.
 
 ## Nächste Implementierungsschritte
 
-1. Sichere Cloud-Anbindung über Proxy/Backend.
-2. Kosten-/Nutzungslimit pro Monat und transparente Anzeige in der App.
-3. AI-Nutzungsprotokoll und Qualitäts-/Kostenmetriken ergänzen.
-4. Import-, Zusammenfassungs-, Selbsttest-, Prüfungs- und Tutor-Pipeline auf echtem iPhone/iPad testen.
-5. Danach optional Tutor-Funktion „Prüf mich“ an die bestehende Assessment-Pipeline anbinden.
+1. Cloudflare Worker tatsächlich deployen und Secrets/Variablen setzen.
+2. Cloud-Endpunkt in der PWA hinterlegen und `health`-Test auf echtem iPhone durchführen.
+3. Einen echten CLOUD-Test pro Funktion durchführen: Summary, Tutor, Lernziele, Karteikarten, freie Antwort.
+4. Kosten-/Nutzungslimit pro Monat und transparente Anzeige ergänzen.
+5. AI-Nutzungsprotokoll und Qualitäts-/Kostenmetriken ergänzen.
+6. Danach systematischer iPhone/iPad-Endtest des gesamten PWA-Flows.
 
-## Changelog 3.13
+## Changelog 3.14
 
-- quellengebundenen Tutor pro Lernziel ergänzt
-- Tutor vollständig auf `AIService.tutor()` gelegt
-- Source-Context aus Lernziel, Quellsnippet und benachbarten Dokumentseiten aufgebaut
-- LOCAL-Tutor auf extraktive quellenbasierte Antworten verbessert
-- Tutor-Historie lokal im `settings`-Store gespeichert und damit Backup-kompatibel gehalten
-- Provider, Confidence und Policy in der Tutor-UI sichtbar gemacht
-- Verlauf-löschen-Funktion ergänzt
-- Mastery bleibt strikt von Tutorantworten entkoppelt
-- neue Datei `tutor-ai.js` ergänzt
-- PWA-Cache auf v9 angehoben
+- persistente Cloud-Proxy-Konfiguration in `AIService` ergänzt
+- persönlicher Proxy-Zugriffsschlüssel unterstützt
+- HTTPS-Endpoint-Validierung ergänzt
+- `testCloud()`-Healthcheck ergänzt
+- neue Profilkarte `Cloud-Verbindung` ergänzt
+- neue Datei `cloud-settings.js`
+- Cloudflare-Worker-Referenzimplementierung unter `cloud-worker/src/index.js` ergänzt
+- Worker akzeptiert nur fünf freigegebene Lernapp-KI-Aufgaben plus Healthcheck
+- OpenAI-Key bleibt ausschließlich im Worker-Secret
+- CORS-Origin und persönlicher Zugriffsschlüssel als Schutzmechanismen ergänzt
+- strukturierte JSON-Schemas für alle Cloud-Aufgaben ergänzt
+- OpenAI-Aufrufe verwenden `store:false`
+- Deployment-Anleitung unter `cloud-worker/README.md` ergänzt
+- PWA-Cache auf v10 angehoben
