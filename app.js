@@ -577,6 +577,91 @@ async function createManualCard(goalId,prompt,answer) {
   await put("flashcards",card);
   toast("Karte gespeichert");
 }
+const READINESS_WEIGHTS = Object.freeze({content:.25, assessment:.20, mastery:.40, stability:.15});
+const STABILITY_TARGET_DAYS = 30;
+const EXAM_HORIZON_DAYS = 30;
+
+function daysUntil(dateKey) {
+  const target = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(target.getTime())) return null;
+  return Math.round((target - new Date(`${dayKey()}T00:00:00`)) / 86400000);
+}
+
+// Nutzerprüfungen tragen einen Termin. Die Datensätze der Prüfungssimulation
+// liegen im selben Store, haben aber keinen, und bleiben so unterscheidbar.
+async function scheduledExams(moduleId) {
+  return (await all("exams"))
+    .filter(e => e.moduleId === moduleId && e.date)
+    .sort((a,b) => a.date.localeCompare(b.date));
+}
+
+async function nextExam(moduleId) {
+  return (await scheduledExams(moduleId)).find(e => (daysUntil(e.date) ?? -1) >= 0) || null;
+}
+
+function scopeDocumentIds(exam) { return exam?.examScope?.documentIds || []; }
+
+function goalsInScope(exam, goals) {
+  const ids = scopeDocumentIds(exam);
+  return ids.length ? goals.filter(g => ids.includes(g.documentId)) : goals;
+}
+
+function masteryValue(m) {
+  const values = m ? [m.recall,m.understanding,m.application,m.transfer].filter(v => v!==null && v!==undefined) : [];
+  return values.length ? values.reduce((a,b)=>a+b,0) / values.length : 0;
+}
+
+// Anteil der lernrelevanten Quellseiten, aus denen mindestens ein Lernziel
+// entstanden ist. Seiten ohne Lernstoff zählen nicht als Lücke. Importe von vor
+// dieser Kennzeichnung gelten als relevant, damit Coverage eher zu niedrig als
+// zu hoch ausfällt: das Ziel ist, blinde Flecken zu finden, nicht 100 % zu zeigen.
+function contentCoverage(documents, goals) {
+  const covered = new Set(goals.map(g => `${g.documentId}:${g.sourcePage}`));
+  let relevantPages = 0, coveredPages = 0;
+  for (const doc of documents) {
+    for (const page of doc.pages || []) {
+      if (page.relevant === false) continue;
+      relevantPages++;
+      if (covered.has(`${doc.id}:${page.page}`)) coveredPages++;
+    }
+  }
+  return {relevantPages, coveredPages, ratio: relevantPages ? coveredPages/relevantPages : 0};
+}
+
+function assessmentCoverage(goals, evidence) {
+  const assessed = new Set(evidence.map(e => e.goalId));
+  const assessedGoals = goals.filter(g => assessed.has(g.id)).length;
+  return {assessedGoals, totalGoals: goals.length, ratio: goals.length ? assessedGoals/goals.length : 0};
+}
+
+// Stabilität aus den FSRS-Intervallen: eine Karte gilt als verankert, wenn ihr
+// Intervall den Zielhorizont erreicht.
+function stabilityScore(cards) {
+  if (!cards.length) return 0;
+  return cards.reduce((sum,c) => sum + Math.min(1,(Number(c.fsrsCard?.stability)||0)/STABILITY_TARGET_DAYS), 0) / cards.length;
+}
+
+async function examReadiness(exam) {
+  const module = await activeModule();
+  const scopeIds = scopeDocumentIds(exam);
+  const goals = goalsInScope(exam, (await all("goals")).filter(g => g.moduleId === module.id));
+  const goalIds = new Set(goals.map(g => g.id));
+  const documents = (await all("documents"))
+    .filter(d => d.moduleId === module.id && (!scopeIds.length || scopeIds.includes(d.id)));
+  const mastery = await all("mastery");
+  const content = contentCoverage(documents, goals);
+  const assessment = assessmentCoverage(goals, (await all("evidence")).filter(e => goalIds.has(e.goalId)));
+  const masteryRatio = goals.length
+    ? goals.reduce((sum,g) => sum + masteryValue(mastery.find(m => m.goalId === g.id)), 0) / goals.length
+    : 0;
+  const stability = stabilityScore((await all("flashcards")).filter(c => goalIds.has(c.goalId)));
+  const score = READINESS_WEIGHTS.content*content.ratio
+    + READINESS_WEIGHTS.assessment*assessment.ratio
+    + READINESS_WEIGHTS.mastery*masteryRatio
+    + READINESS_WEIGHTS.stability*stability;
+  return {exam, goalCount:goals.length, content, assessment, mastery:masteryRatio, stability, score};
+}
+
 async function generatePlan() {
   const module=await activeModule();
   const settings=await ensureSettings();
@@ -584,28 +669,44 @@ async function generatePlan() {
   const mastery=await all("mastery");
   const gaps=(await all("gaps")).filter(x=>x.moduleId===module.id && x.status==="OPEN");
   const cards=(await all("flashcards")).filter(x=>x.moduleId===module.id);
+  const evidence=await all("evidence");
+  const exam=await nextExam(module.id);
+  const daysLeft=exam?daysUntil(exam.date):null;
+  // Je näher der Termin rückt, desto stärker verschiebt sich der Plan auf den
+  // Prüfungsstoff. Ohne Termin bleibt die Reihenfolge unverändert.
+  const urgency=daysLeft===null?0:Math.max(0,Math.min(1,(EXAM_HORIZON_DAYS-daysLeft)/EXAM_HORIZON_DAYS));
+  const scopeGoalIds=new Set(goalsInScope(exam,goals).map(g=>g.id));
+  const assessedGoalIds=new Set(evidence.map(e=>e.goalId));
+  const examWeight=goalId=>{
+    if(!exam) return 0;
+    if(!scopeGoalIds.has(goalId)) return -20*urgency;
+    // Ungeprüfter Prüfungsstoff wiegt am schwersten: dort fehlt jede Evidence.
+    return 30*urgency + (assessedGoalIds.has(goalId)?0:15*urgency);
+  };
   const candidates=[];
 
   for (const gap of gaps) {
     const goal=goals.find(g=>g.id===gap.goalId);
     if(goal) candidates.push({
       id:uid(),type:"GAP_REPAIR",goalId:goal.id,title:goal.statement,
-      minutes:8,score:85+gap.severity*25,reason:"Wissenslücke"
+      minutes:8,score:85+gap.severity*25+examWeight(goal.id),reason:"Wissenslücke"
     });
   }
   for (const card of cards.filter(c=>new Date(c.dueAt)<=new Date() && (c.reviewCount||0)>0)) {
     const goal=goals.find(g=>g.id===card.goalId);
     if(goal) candidates.push({
       id:uid(),type:"REVIEW",goalId:goal.id,cardId:card.id,
-      title:card.prompt,minutes:4,score:78,reason:"Wiederholung fällig"
+      title:card.prompt,minutes:4,score:78+examWeight(goal.id),reason:"Wiederholung fällig"
     });
   }
   for (const goal of goals) {
     const m=mastery.find(x=>x.goalId===goal.id);
     if (!m || ["NOT_ASSESSED","WEAK","DEVELOPING"].includes(m.status)) {
+      const inScope=exam&&scopeGoalIds.has(goal.id);
       candidates.push({
         id:uid(),type:"LEARN",goalId:goal.id,title:goal.statement,
-        minutes:8,score:m?.status==="WEAK"?82:65,reason:m?.status==="WEAK"?"Schwachstelle":"Noch nicht geprüft"
+        minutes:8,score:(m?.status==="WEAK"?82:65)+examWeight(goal.id),
+        reason:m?.status==="WEAK"?"Schwachstelle":inScope?"Prüfungsstoff, noch nicht geprüft":"Noch nicht geprüft"
       });
     }
   }
@@ -618,7 +719,8 @@ async function generatePlan() {
     chosen.push({...c,status:"OPEN"}); used+=c.minutes; usedGoals.add(c.goalId);
   }
   const id=`${module.id}:${dayKey()}`;
-  await put("plans",{id,moduleId:module.id,date:dayKey(),minutes:settings.dailyMinutes,tasks:chosen,createdAt:nowISO()});
+  await put("plans",{id,moduleId:module.id,date:dayKey(),minutes:settings.dailyMinutes,tasks:chosen,
+    examId:exam?.id||null,daysUntilExam:daysLeft,createdAt:nowISO()});
   return get("plans",id);
 }
 
@@ -900,6 +1002,8 @@ async function renderToday() {
     return a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
   }).reduce((a,b)=>a+b,0)/assessed.length : 0;
   const done=plan.tasks.filter(t=>t.status==="DONE").length;
+  const upcoming=await nextExam(module.id);
+  const readiness=upcoming?await examReadiness(upcoming):null;
 
   content.innerHTML=`
     <section class="card hero">
@@ -910,6 +1014,7 @@ async function renderToday() {
     <div class="grid">
       <section class="card metric"><span class="muted small">Lernserie</span><strong>${s.current}</strong><span class="small">Tage · Bestwert ${s.longest}</span></section>
       <section class="card metric"><span class="muted small">Mastery</span><strong>${Math.round(avg*100)}%</strong><span class="small">${assessed.length} Lernziele geprüft</span></section>
+      ${readiness?`<section class="card metric"><span class="muted small">Prüfungsbereit</span><strong>${Math.round(readiness.score*100)}%</strong><span class="small">${esc(readiness.exam.title)} · ${esc(examCountdown(readiness.exam))}</span></section>`:""}
     </div>
     <section class="card">
       <div class="row between"><h2>Tagesplan</h2><button class="secondary" id="regen-plan">Neu planen</button></div>
@@ -1074,11 +1179,65 @@ async function reviewCard(cards,index) {
   });
 }
 
+function progressBar(label,value,note="") {
+  const percent=Math.round(Math.max(0,Math.min(1,value))*100);
+  return `<div class="list-item"><div class="row between"><span>${label}</span><strong>${percent}%</strong></div>
+    <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
+    ${note?`<div class="small muted">${esc(note)}</div>`:""}</div>`;
+}
+
+function examCountdown(exam) {
+  const days=daysUntil(exam.date);
+  if(days===null) return "Ohne gültiges Datum";
+  if(days<0) return "Termin vorbei";
+  if(days===0) return "Heute";
+  if(days===1) return "Morgen";
+  return `In ${days} Tagen`;
+}
+
+async function showExamForm() {
+  const module=await activeModule();
+  const documents=(await all("documents")).filter(d=>d.moduleId===module.id);
+  showModal(`
+    <div class="eyebrow">PRÜFUNG ANLEGEN</div>
+    <h2>Neue Prüfung</h2>
+    <label class="small muted" for="new-exam-title">Titel</label>
+    <input id="new-exam-title" type="text" placeholder="z. B. Klausur Zellbiologie">
+    <label class="small muted" for="new-exam-date">Termin</label>
+    <input id="new-exam-date" type="date" min="${dayKey()}">
+    <p class="small muted">Prüfungsstoff auswählen. Ohne Auswahl zählt das gesamte Modul.</p>
+    ${documents.length
+      ? documents.map(d=>`<label class="list-item"><input type="checkbox" class="exam-scope-option" value="${esc(d.id)}"> ${esc(d.title)}</label>`).join("")
+      : `<div class="empty">Noch kein Material importiert.</div>`}
+    <button type="button" class="primary full" id="save-exam">Prüfung speichern</button>`);
+  $("#save-exam").onclick=async()=>{
+    const title=$("#new-exam-title").value.trim();
+    const date=$("#new-exam-date").value;
+    if(!date){toast("Bitte einen Termin wählen.");return;}
+    const documentIds=[...document.querySelectorAll(".exam-scope-option:checked")].map(x=>x.value);
+    await put("exams",{
+      id:uid(),moduleId:module.id,title:title||"Prüfung",date,
+      examScope:{documentIds},createdAt:nowISO()
+    });
+    await generatePlan();
+    closeModal();
+    toast("Prüfung gespeichert");
+    renderProgress();
+  };
+}
+
 async function renderProgress() {
   const module=await activeModule();
   const goals=(await all("goals")).filter(x=>x.moduleId===module.id);
   const ms=(await all("mastery")).filter(x=>x.moduleId===module.id);
   const gaps=(await all("gaps")).filter(x=>x.moduleId===module.id && x.status==="OPEN");
+  const documents=(await all("documents")).filter(d=>d.moduleId===module.id);
+  const evidence=await all("evidence");
+  const exams=await scheduledExams(module.id);
+  const upcoming=await nextExam(module.id);
+  const readiness=upcoming?await examReadiness(upcoming):null;
+  const moduleContent=contentCoverage(documents,goals);
+  const moduleAssessment=assessmentCoverage(goals,evidence);
   const s=await streak();
   const dims=["recall","understanding","application","transfer"];
   const dimLabels={recall:"Abruf",understanding:"Verständnis",application:"Anwendung",transfer:"Transfer"};
@@ -1093,6 +1252,29 @@ async function renderProgress() {
       <section class="card metric"><span class="muted small">Beherrscht</span><strong>${mastered}</strong><span class="small">von ${goals.length} Lernzielen</span></section>
       <section class="card metric"><span class="muted small">Offene Lücken</span><strong>${gaps.length}</strong><span class="small">werden priorisiert</span></section>
     </div>
+    ${readiness?`<section class="card">
+      <div class="row between"><h2>Prüfungsbereitschaft</h2><span class="badge ${readiness.score>=.75?"good":readiness.score>=.5?"warn":"danger"}">${Math.round(readiness.score*100)}%</span></div>
+      <p class="small muted">${esc(readiness.exam.title)} · ${esc(examCountdown(readiness.exam))} · ${readiness.goalCount} Lernziele im Prüfungsstoff</p>
+      ${progressBar("Inhaltsabdeckung",readiness.content.ratio,`Gewicht 25 % · ${readiness.content.coveredPages} von ${readiness.content.relevantPages} Seiten`)}
+      ${progressBar("Geprüfte Lernziele",readiness.assessment.ratio,`Gewicht 20 % · ${readiness.assessment.assessedGoals} von ${readiness.assessment.totalGoals} Lernzielen`)}
+      ${progressBar("Mastery",readiness.mastery,"Gewicht 40 %")}
+      ${progressBar("Stabilität",readiness.stability,"Gewicht 15 % · aus den FSRS-Intervallen")}
+      <p class="small muted">Prüfungsbereitschaft steuert das Lernen und ist keine Bestehensgarantie.</p>
+    </section>`:""}
+    <section class="card">
+      <h2>Abdeckung im Modul</h2>
+      ${progressBar("Inhaltsabdeckung",moduleContent.ratio,`${moduleContent.coveredPages} von ${moduleContent.relevantPages} lernrelevanten Seiten haben Lernziele`)}
+      ${progressBar("Assessment-Abdeckung",moduleAssessment.ratio,`${moduleAssessment.assessedGoals} von ${moduleAssessment.totalGoals} Lernzielen wurden mindestens einmal geprüft`)}
+      <p class="small muted">Seiten ohne Lernstoff, etwa Verzeichnisse, zählen nicht als Lücke.</p>
+    </section>
+    <section class="card">
+      <div class="row between"><h2>Prüfungen</h2><button class="secondary" id="add-exam">Anlegen</button></div>
+      ${exams.length?exams.map(e=>`<div class="list-item">
+        <div class="row between"><strong>${esc(e.title)}</strong><span class="badge">${esc(examCountdown(e))}</span></div>
+        <div class="small muted">${esc(e.date)} · ${scopeDocumentIds(e).length?`${scopeDocumentIds(e).length} Materialien im Stoff`:"gesamtes Modul"}</div>
+        <button type="button" class="secondary full" data-delete-exam="${esc(e.id)}">Prüfung entfernen</button>
+      </div>`).join(""):`<div class="empty">Kein Termin eingetragen. Mit Termin priorisiert der Tagesplan den Prüfungsstoff.</div>`}
+    </section>
     <section class="card"><h2>Wissensdimensionen</h2>
       ${dims.map(d=>`<div class="list-item"><div class="row between"><span>${dimLabels[d]}</span><strong>${Math.round(averages[d]*100)}%</strong></div><div class="progress-track"><div class="progress-fill" style="width:${averages[d]*100}%"></div></div></div>`).join("")}
     </section>
@@ -1106,6 +1288,15 @@ async function renderProgress() {
     <section class="card"><h2>Wissenslücken</h2>
       ${gaps.length?gaps.slice(0,20).map(g=>`<div class="list-item clickable" data-open-goal="${g.goalId}"><strong>${esc(g.type)}</strong><div class="small muted">${esc(g.reason)}</div></div>`).join(""):`<div class="empty">Keine offenen Wissenslücken.</div>`}
     </section>`;
+  $("#add-exam")?.addEventListener("click",()=>showExamForm());
+  content.querySelectorAll("[data-delete-exam]").forEach(button=>{
+    button.onclick=async()=>{
+      await del("exams",button.dataset.deleteExam);
+      await generatePlan();
+      toast("Prüfung entfernt");
+      renderProgress();
+    };
+  });
   $("#start-exam")?.addEventListener(
     "click",
     ()=>startExamUI()
