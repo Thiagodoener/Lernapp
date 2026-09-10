@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.11 — 10.09.2026
+## Version 3.12 — 10.09.2026
 
 ### Leitprinzip
 
@@ -68,26 +68,43 @@ Der Materialimport läuft über die AI-Import-Pipeline:
 
 ## Freie Antwortbewertung über AIService
 
-**Status: IMPLEMENTIERT FÜR SELBSTTESTS**
+**Status: IMPLEMENTIERT FÜR SELBSTTESTS UND PRÜFUNGSSIMULATION**
 
-Selbsttests an Lernzielen laufen jetzt über `AIService.evaluateFreeAnswer()`.
+Selbsttests und freie Antworten in der Prüfungssimulation laufen über dieselbe zentrale `AIService.evaluateFreeAnswer()`-Pipeline.
 
 Bewertungslogik:
-- `LOCAL`: vollständig lokale Token-/Inhaltsüberschneidungs-Baseline, Confidence 0.35.
-- `CLOUD`: semantische Bewertung über den konfigurierten Cloud-Endpunkt; wenn kein Endpoint verfügbar ist, wird transparent abgebrochen.
-- `AUTO`: lokale Vorbewertung zuerst. Wenn CLOUD nicht verfügbar ist, bleibt das Ergebnis lokal. Wenn CLOUD verfügbar ist und das lokale Ergebnis in einem unsicheren mittleren Bereich liegt, wird an CLOUD eskaliert. Falls die Cloud-Auswertung fehlschlägt, fällt AUTO kontrolliert auf LOCAL zurück.
+- `LOCAL`: vollständig lokale Baseline, kostenfrei.
+- `CLOUD`: semantische Bewertung über den konfigurierten sicheren Cloud-Endpunkt.
+- `AUTO`: lokale Vorbewertung/Fallback und optionale Cloud-Eskalation bei unsicheren Fällen, sobald CLOUD verfügbar ist.
 
-Jede Auswertung erzeugt Assessment-Evidence mit:
+Gemeinsame Evidence-Pipeline:
 - Score
 - Confidence
 - Provider
 - Evaluations-Policy
 - Feedback
+- Dimension (`RECALL`, `UNDERSTANDING`, `APPLICATION`, `TRANSFER`)
 - `independentRecall=true`
+- Quelle (`SELF_TEST` oder `EXAM_SIMULATION`)
+- bei Prüfungen zusätzlich Exam-, Session- und Item-Referenz
 
-Danach werden Mastery und Knowledge Gap deterministisch neu berechnet. `MASTERED` bleibt an die bestehende Mindest-Confidence und Evidenzanzahl gebunden. Der Tagesplan wird nach neuer Evidenz invalidiert und anschließend neu geplant.
+Nach jeder bewerteten Antwort werden Mastery und Knowledge Gap deterministisch neu berechnet. Der Tagesplan wird invalidiert, damit neue Schwächen in die Planung zurückfließen.
 
-Die bestehende alte direkte Selbsttest-Bewertung wird durch einen Capture-Handler überschrieben, sodass keine doppelte Evidenz entsteht.
+### Prüfungssimulation
+
+**Status: IMPLEMENTIERT ÜBER AIService**
+
+Die bestehende Prüfungssimulation behält ihre 30-Minuten-Logik, priorisierten Lernziele und vier Wissensdimensionen. Die Antwortbewertung wurde jedoch auf die gemeinsame AIService-Pipeline umgestellt.
+
+Regeln:
+- unbeantwortete Fragen zählen weiterhin als 0
+- jede beantwortete Frage speichert Provider, Confidence, Policy und Feedback am Exam-Item
+- schwache Lernziele unter 60 % werden in `weakGoalIds` übernommen
+- Prüfungsergebnis basiert auf allen Items, inklusive unbeantworteter Fragen
+- Mastery-/Gap-Updates entstehen aus der gleichen Evidence-Logik wie bei Selbsttests
+- bei Ablauf des Timers wird die Prüfung automatisch abgeschlossen
+- Spracherkennung bleibt progressive enhancement; Texteingabe bleibt der sichere Fallback
+- doppelte Evidenz durch den alten lokalen Prüfungs-Submit wird per Capture-Handler verhindert
 
 ## Architekturregel
 
@@ -99,20 +116,21 @@ Datenhaltung, Coverage, Lernplanung, Fortschritt, FSRS, Statistiken und Statusü
 
 ## Nächste Implementierungsschritte
 
-1. Prüfungssimulation auf dieselbe `AIService.evaluateFreeAnswer()`-Logik umstellen.
-2. Tutor vollständig über `AIService.tutor()` anbinden.
-3. Sichere Cloud-Anbindung über Proxy/Backend.
-4. Kosten-/Nutzungslimit pro Monat und transparente Anzeige in der App.
-5. Import-, Zusammenfassungs- und Bewertungs-Pipeline auf echtem iPhone/iPad testen.
+1. Tutor vollständig über `AIService.tutor()` anbinden.
+2. Sichere Cloud-Anbindung über Proxy/Backend.
+3. Kosten-/Nutzungslimit pro Monat und transparente Anzeige in der App.
+4. Import-, Zusammenfassungs-, Selbsttest- und Prüfungs-Pipeline auf echtem iPhone/iPad testen.
+5. Danach AI-Nutzungsprotokoll und Qualitäts-/Kostenmetriken ergänzen.
 
-## Changelog 3.11
+## Changelog 3.12
 
-- freie Selbsttest-Antworten auf `AIService.evaluateFreeAnswer()` umgestellt
-- AUTO nutzt lokale Vorbewertung und optionale Cloud-Eskalation
-- kontrollierter LOCAL-Fallback bei Cloud-Ausfall ergänzt
-- Assessment-Evidence speichert Provider, Policy und Feedback
-- Mastery-/Gap-Neuberechnung nach AI-Auswertung eingebaut
-- Tagesplan wird nach neuer Evidenz invalidiert
-- alte direkte Selbsttest-Bewertung wird ohne Doppelerfassung überschrieben
-- neue Datei `free-answer-ai.js` ergänzt
-- PWA-Cache auf v7 angehoben
+- gemeinsame freie Antwortpipeline für Selbsttests und Prüfungen eingeführt
+- `free-answer-ai.js` um wiederverwendbares `evaluateAndPersist()` erweitert
+- Prüfungssimulation auf `AIService.evaluateFreeAnswer()` umgestellt
+- Exam-Items speichern Provider, Confidence, Policy und Feedback
+- Prüfungs-Evidence speichert Exam-/Session-/Item-Referenzen
+- unbeantwortete Fragen bleiben Score 0
+- Mastery, Gaps und Tagesplan werden nach Prüfungsantworten aktualisiert
+- Timer- und Abschlusslogik in AI-Prüfungsmodul erhalten
+- neue Datei `exam-ai.js` ergänzt
+- PWA-Cache auf v8 angehoben
