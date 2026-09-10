@@ -67,7 +67,7 @@ const localProvider={
   },
   async evaluateFreeAnswer({expected="",answer=""}={}){
     const score=localTokenScore(expected,answer);
-    return {provider:"LOCAL",score,confidence:0.35,feedback:score>=0.7?"Wesentliche Inhalte sind enthalten.":"Es fehlen noch wichtige Begriffe oder Zusammenhänge."};
+    return {provider:"LOCAL",score,confidence:0.35,feedback:score>=0.7?"Wesentliche Inhalte sind enthalten.":score>=0.4?"Ein Teil der wesentlichen Inhalte ist enthalten; zentrale Begriffe oder Zusammenhänge fehlen noch.":"Es fehlen noch wichtige Begriffe oder Zusammenhänge."};
   }
 };
 
@@ -110,7 +110,24 @@ const AIService={
   tutor(payload){return this.run("tutor",payload);},
   generateLearningGoals(payload){return this.run("generateLearningGoals",payload);},
   generateFlashcards(payload){return this.run("generateFlashcards",payload);},
-  evaluateFreeAnswer(payload){return this.run("evaluateFreeAnswer",payload);}
+  async evaluateFreeAnswer(payload){
+    const mode=await this.getMode();
+    if(mode===AI_MODES.LOCAL)return localProvider.evaluateFreeAnswer(payload);
+    if(mode===AI_MODES.CLOUD){
+      if(!cloudProvider.isAvailable())throw new Error("CLOUD ist gewählt, aber die Cloud-KI ist derzeit nicht verfügbar.");
+      return cloudProvider.evaluateFreeAnswer(payload);
+    }
+    const local=await localProvider.evaluateFreeAnswer(payload);
+    if(!cloudProvider.isAvailable())return {...local,policy:"AUTO_LOCAL_FALLBACK"};
+    const uncertain=local.score>0.2&&local.score<0.9;
+    if(!uncertain)return {...local,policy:"AUTO_LOCAL_CONFIDENT"};
+    try{
+      const cloud=await cloudProvider.evaluateFreeAnswer({...payload,localPrefilter:{score:local.score,confidence:local.confidence}});
+      return {...cloud,policy:"AUTO_CLOUD_ESCALATION",localPrefilter:local};
+    }catch(error){
+      return {...local,policy:"AUTO_CLOUD_FAILED_FALLBACK",cloudError:String(error?.message||error)};
+    }
+  }
 };
 
 window.AIService=AIService;
