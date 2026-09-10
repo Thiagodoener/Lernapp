@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.23 — 10.09.2026
+## Version 3.24 — 10.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -662,6 +662,12 @@ Die Oberfläche folgt den iOS-Gestaltungsregeln, damit sich die PWA auf dem Home
 - **Touchziele** mindestens 44 px, mit Druckrückmeldung statt Hover.
 - **Safe Areas** oben und unten werden überall berücksichtigt, ebenso `prefers-reduced-motion`.
 
+### Erscheinungsbild
+
+Im Profil lässt sich zwischen **Automatisch**, **Hell** und **Dunkel** wählen, wie unter iOS. Automatisch folgt der Systemeinstellung und reagiert sofort auf einen Wechsel, ohne Neuladen.
+
+Die Wahl liegt im `localStorage` und nicht in der IndexedDB, weil sie eine Einstellung dieses Geräts ist und nicht zu den Lerndaten gehört: ein Backup soll das Erscheinungsbild eines anderen Geräts nicht überschreiben. Ein kurzes Skript im `head` setzt das wirksame Erscheinungsbild als `data-theme`, bevor gezeichnet wird; sonst blitzt beim Start kurz das falsche auf. Weil dieses Skript die Systemvorgabe bereits auflöst, existiert die Farbpalette genau einmal im Stylesheet statt doppelt gepflegt in einer Media Query. Die Farbe der Statusleiste wird mitgeführt.
+
 Die Gestaltung liegt vollständig in `styles.css`. Module dürfen keine eigenen `style`-Blöcke einhängen, weil diese später in der Kaskade landen und das Design-System stillschweigend überschreiben würden.
 
 ## 28. Offline/PWA
@@ -846,6 +852,7 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | AI-Nutzungsprotokoll | IMPLEMENTIERT |
 | Selbstcheck nach Kapitel 33 | IMPLEMENTIERT |
 | iOS-Gestaltung nach HIG | IMPLEMENTIERT |
+| Erscheinungsbild umschaltbar | IMPLEMENTIERT |
 | Knowledge Map | OPTIONAL/OFFEN |
 | vollständiger iPhone/iPad Endtest | OFFEN |
 
@@ -888,6 +895,14 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.24
+
+- Erscheinungsbild im Profil umschaltbar: Automatisch, Hell, Dunkel
+- Automatisch folgt der Systemeinstellung und reagiert ohne Neuladen auf einen Wechsel
+- Wahl greift vor dem ersten Zeichnen, dadurch blitzt beim Start kein falsches Erscheinungsbild auf
+- Farbe der Statusleiste folgt der Wahl
+- Farbpalette liegt nur noch einmal im Stylesheet statt doppelt in einer Media Query
 
 ## Changelog 3.23
 

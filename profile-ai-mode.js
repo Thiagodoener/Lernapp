@@ -36,7 +36,10 @@ async function injectAIModeCard(){
     </div>
     <p class="small muted">API-Schlüssel werden niemals im Browser gespeichert. Eine spätere Cloud-Anbindung läuft über einen sicheren Backend-Endpunkt.</p>
   `;
-  content.prepend(card);
+  // Nach der Erscheinungsbild-Karte einhaengen, damit die Reihenfolge
+  // unabhaengig davon ist, welches Modul zuerst laeuft.
+  const appearanceCard=content.querySelector("#appearance-card");
+  if(appearanceCard)appearanceCard.insertAdjacentElement("afterend",card);else content.prepend(card);
 
   const mode=await window.AIService.getMode();
   const status=await window.AIService.status();

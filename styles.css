@@ -2,8 +2,12 @@
    Interface Guidelines, damit sich die PWA auf iPhone und iPad wie eine
    native App anfühlt. */
 
+/* Das wirksame Erscheinungsbild setzt ein kurzes Skript im head als
+   data-theme, noch bevor gezeichnet wird. Bei "Automatisch" loest es die
+   Systemvorgabe auf. Dadurch gibt es genau eine Quelle fuer den Zustand und
+   keine doppelt gepflegte Farbpalette. */
 :root{
-  color-scheme: light dark;
+  color-scheme: light;
 
   --tint:#007aff;
   --tint-pressed:#0062cc;
@@ -37,31 +41,32 @@
   --ease:cubic-bezier(.32,.72,0,1);
 }
 
-@media (prefers-color-scheme:dark){
-  :root{
-    --tint:#0a84ff;
-    --tint-pressed:#409cff;
-    --green:#30d158;
-    --orange:#ff9f0a;
-    --red:#ff453a;
+/* Dunkles Erscheinungsbild */
+:root[data-theme="dark"]{
+  color-scheme: dark;
 
-    --bg:#000000;
-    --card:#1c1c1e;
-    --fill:rgba(120,120,128,.24);
-    --fill-strong:rgba(120,120,128,.36);
-    --line:rgba(84,84,88,.65);
-    --text:#ffffff;
-    --muted:rgba(235,235,245,.6);
-    --faint:rgba(235,235,245,.3);
-    --material:rgba(30,30,32,.82);
+  --tint:#0a84ff;
+  --tint-pressed:#409cff;
+  --green:#30d158;
+  --orange:#ff9f0a;
+  --red:#ff453a;
 
-    --good:#30d158;
-    --warn:#ff9f0a;
-    --danger:#ff453a;
-    --good-bg:rgba(48,209,88,.18);
-    --warn-bg:rgba(255,159,10,.2);
-    --danger-bg:rgba(255,69,58,.18);
-  }
+  --bg:#000000;
+  --card:#1c1c1e;
+  --fill:rgba(120,120,128,.24);
+  --fill-strong:rgba(120,120,128,.36);
+  --line:rgba(84,84,88,.65);
+  --text:#ffffff;
+  --muted:rgba(235,235,245,.6);
+  --faint:rgba(235,235,245,.3);
+  --material:rgba(30,30,32,.82);
+
+  --good:#30d158;
+  --warn:#ff9f0a;
+  --danger:#ff453a;
+  --good-bg:rgba(48,209,88,.18);
+  --warn-bg:rgba(255,159,10,.2);
+  --danger-bg:rgba(255,69,58,.18);
 }
 
 *{box-sizing:border-box}
@@ -484,9 +489,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);backdrop-filter:blur(2px)}
   -webkit-backdrop-filter:blur(20px);
   animation:toast-in .26s var(--ease);
 }
-@media (prefers-color-scheme:dark){
-  .toast{background:rgba(58,58,60,.94)}
-}
+:root[data-theme="dark"] .toast{background:rgba(58,58,60,.94)}
 @keyframes toast-in{from{opacity:0;transform:translate(-50%,12px)}to{opacity:1;transform:translateX(-50%)}}
 
 /* --- Bereiche, die die Module nachträglich einhängen --------------------- */
@@ -507,7 +510,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);backdrop-filter:blur(2px)}
 .tutor-message.user .muted,.tutor-message.user .source{color:rgba(255,255,255,.75)}
 .tutor-check-question{background:var(--fill);padding:12px 14px;border-radius:var(--radius);margin:0 0 12px}
 
-.ai-mode-segmented{
+.segmented{
   display:grid;
   grid-template-columns:repeat(3,1fr);
   gap:2px;
@@ -516,7 +519,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);backdrop-filter:blur(2px)}
   border-radius:9px;
   padding:2px;
 }
-.ai-mode-segmented button{
+.segmented button{
   min-height:32px;
   border:0;
   border-radius:7px;
@@ -526,7 +529,7 @@ dialog::backdrop{background:rgba(0,0,0,.4);backdrop-filter:blur(2px)}
   font-weight:500;
   transition:background .16s var(--ease);
 }
-.ai-mode-segmented button.active{background:var(--card);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.segmented button.active{background:var(--card);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .ai-mode-grid{display:grid;gap:8px;margin-top:12px}
 .ai-mode-grid>div{display:grid;gap:2px;padding:12px;background:var(--fill);border-radius:var(--radius)}
 .ai-mode-grid strong{font-size:15px;font-weight:600}
