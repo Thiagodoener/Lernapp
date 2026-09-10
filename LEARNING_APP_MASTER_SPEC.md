@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.10 — 09.09.2026
+## Version 3.11 — 10.09.2026
 
 ### Leitprinzip
 
@@ -10,116 +10,109 @@ Die Lernapp bleibt offline-first. Deterministische Kernfunktionen dürfen nicht 
 
 **Status: FIX**
 
-Ein importiertes Lernmaterial kann vollständig gelöscht werden.
-
-Beim Löschen eines `Document` werden alle ausschließlich daraus abgeleiteten Inhalte entfernt:
-
-- LearningGoals
-- Flashcards
-- Reviews
-- AssessmentEvidence
-- MasteryState
-- KnowledgeGaps
-
-Lernpläne, Exam-Definitionen und Prüfungssitzungen bleiben bestehen, werden aber um Referenzen auf gelöschte Lernziele bzw. Karteikarten bereinigt. Andere Materialien und deren Lernfortschritt dürfen dadurch nicht verloren gehen.
-
-Vor dem Löschen muss eine eindeutige Bestätigung erscheinen. Nach erfolgreicher Löschung darf kein gelöschtes LearningGoal mehr in Planung, Review, Assessment oder Wissensstand auftauchen.
+Ein importiertes Lernmaterial kann vollständig gelöscht werden. Beim Löschen eines `Document` werden die ausschließlich daraus abgeleiteten Lernziele, Karteikarten, Reviews, Evidenzen, Mastery-Zustände und Wissenslücken bereinigt. Andere Materialien und deren Fortschritt bleiben erhalten.
 
 ## KI-Betriebsmodi
 
 **Status: IMPLEMENTIERT**
 
-Die App unterstützt drei Modi:
-
 ### LOCAL
 - keine laufenden KI-API-Kosten
-- Datenhaltung, FSRS, Coverage, Planung, Fortschritt, Statistiken und Statuslogik lokal
-- lokale Heuristiken bzw. lokale Modelle, soweit verfügbar
+- lokale Heuristiken/Fallbacks
+- Datenhaltung, FSRS, Planung, Fortschritt und Statuslogik bleiben lokal
 
 ### AUTO
 - Standardmodus
-- nutzt den besten verfügbaren Provider
-- fällt auf LOCAL zurück, solange keine Cloud-KI konfiguriert ist
-- Ziel: hohe Qualität bei sehr niedrigen laufenden Kosten
+- nutzt lokale Verarbeitung als Vorfilter/Fallback
+- kann semantisch unsichere Fälle an CLOUD eskalieren, sobald ein sicherer Cloud-Endpunkt konfiguriert ist
+- Ziel: hohe Qualität bei niedrigen laufenden Kosten
 
 ### CLOUD
-- hochwertige Cloud-KI für semantische Aufgaben
-- vorgesehen für Zusammenfassungen, Lernzielgenerierung, Karteikarten, Quizfragen, Tutor-Erklärungen und Bewertung freier Antworten
-- erfordert sicheren Backend-/Proxy-Endpunkt; API-Schlüssel bleiben aus dem Browser heraus
+- vorgesehen für höchste semantische Qualität
+- benötigt einen sicheren Backend-/Proxy-Endpunkt
+- API-Schlüssel dürfen niemals im öffentlich ausgelieferten Browser-Code gespeichert werden
 
 ## AIService
 
 **Status: IMPLEMENTIERT**
 
-Cloud- und Local-Verarbeitung werden hinter einer austauschbaren `AIService`-/Provider-Schnittstelle gekapselt. Die Lernlogik darf nicht direkt an einen einzelnen Anbieter gekoppelt sein.
-
-Aktuelle Schnittstellen:
-
+Zentrale Schnittstellen:
 - `summarize`
 - `tutor`
 - `generateLearningGoals`
 - `generateFlashcards`
 - `evaluateFreeAnswer`
 
+Cloud- und Local-Verarbeitung bleiben vollständig hinter dieser Schnittstelle gekapselt.
+
 ## Zusammenfassungen über AIService
 
 **Status: IMPLEMENTIERT**
 
-Dokument-Zusammenfassungen laufen über `AIService.summarize()`.
-
-Unterstützte Längen:
-
-- Kurz
-- Standard
-- Ausführlich
-
-Die erzeugte Zusammenfassung wird am Dokument lokal gespeichert, inklusive Provider, Confidence, gewählter Länge, Erstellzeitpunkt und aktivem KI-Modus.
+Dokument-Zusammenfassungen laufen über `AIService.summarize()` und unterstützen Kurz, Standard und Ausführlich. Ergebnisse werden lokal am Dokument mit Provider, Confidence, Länge, Erstellzeitpunkt und AI-Modus gespeichert.
 
 ## Lernziel- und Karteikartengenerierung über AIService
 
 **Status: IMPLEMENTIERT**
 
-Der Materialimport wird vor dem bisherigen Import-Handler durch eine zentrale AI-Import-Pipeline übernommen.
-
-Ablauf:
+Der Materialimport läuft über die AI-Import-Pipeline:
 
 1. PDF/TXT/Markdown wird lokal extrahiert; Scan-PDF-Seiten nutzen OCR-Fallback.
-2. Pro Quellseite werden Lernziele ausschließlich über `AIService.generateLearningGoals()` erzeugt.
-3. Die erzeugten Lernziele behalten `documentId`, `sourcePage`, `sourceSnippet`, Provider, AI-Modus und Confidence als Provenienz.
-4. Karteikarten werden anschließend ausschließlich über `AIService.generateFlashcards()` erzeugt.
-5. Jede Karte erhält einen echten FSRS-Ausgangszustand und behält Provider-/Modus-Metadaten.
-6. Mastery startet weiterhin konservativ bei `NOT_ASSESSED`.
-7. Der bestehende Tagesplan wird für den aktuellen Tag invalidiert und beim nächsten Aufruf aus den neuen Lernzielen neu erzeugt.
-8. Bei einem Importfehler werden bereits angelegte Dokument-, Lernziel-, Mastery- und Karteikartendaten wieder bereinigt.
+2. Lernziele werden über `AIService.generateLearningGoals()` erzeugt.
+3. Quellen-, Provider-, Modus- und Confidence-Provenienz bleibt erhalten.
+4. Karteikarten werden über `AIService.generateFlashcards()` erzeugt.
+5. Jede Karte erhält einen echten FSRS-Ausgangszustand.
+6. Mastery startet konservativ bei `NOT_ASSESSED`.
+7. Nach Import wird der Tagesplan invalidiert und aus dem neuen Wissensstand neu aufgebaut.
+8. Bei Fehlern werden bereits angelegte Importdaten wieder bereinigt.
 
-Im LOCAL-Modus bleibt diese Pipeline vollständig kostenfrei. AUTO nutzt aktuell LOCAL, solange kein Cloud-Provider sicher konfiguriert ist. CLOUD bricht transparent ab, wenn kein sicherer Cloud-Endpunkt verfügbar ist.
+## Freie Antwortbewertung über AIService
+
+**Status: IMPLEMENTIERT FÜR SELBSTTESTS**
+
+Selbsttests an Lernzielen laufen jetzt über `AIService.evaluateFreeAnswer()`.
+
+Bewertungslogik:
+- `LOCAL`: vollständig lokale Token-/Inhaltsüberschneidungs-Baseline, Confidence 0.35.
+- `CLOUD`: semantische Bewertung über den konfigurierten Cloud-Endpunkt; wenn kein Endpoint verfügbar ist, wird transparent abgebrochen.
+- `AUTO`: lokale Vorbewertung zuerst. Wenn CLOUD nicht verfügbar ist, bleibt das Ergebnis lokal. Wenn CLOUD verfügbar ist und das lokale Ergebnis in einem unsicheren mittleren Bereich liegt, wird an CLOUD eskaliert. Falls die Cloud-Auswertung fehlschlägt, fällt AUTO kontrolliert auf LOCAL zurück.
+
+Jede Auswertung erzeugt Assessment-Evidence mit:
+- Score
+- Confidence
+- Provider
+- Evaluations-Policy
+- Feedback
+- `independentRecall=true`
+
+Danach werden Mastery und Knowledge Gap deterministisch neu berechnet. `MASTERED` bleibt an die bestehende Mindest-Confidence und Evidenzanzahl gebunden. Der Tagesplan wird nach neuer Evidenz invalidiert und anschließend neu geplant.
+
+Die bestehende alte direkte Selbsttest-Bewertung wird durch einen Capture-Handler überschrieben, sodass keine doppelte Evidenz entsteht.
 
 ## Architekturregel
 
-Sensible API-Schlüssel dürfen niemals fest im Browser-Code einer öffentlich ausgelieferten PWA hinterlegt werden. Für echte Cloud-KI ist daher ein sicherer Proxy bzw. Backend-Endpunkt vorzusehen.
+Sensible API-Schlüssel dürfen niemals fest im Browser-Code einer öffentlich ausgelieferten PWA hinterlegt werden. Für echte Cloud-KI ist ein sicherer Proxy bzw. Backend-Endpunkt erforderlich.
 
 ## Kostenprinzip
 
-Deterministische Funktionen wie Datenhaltung, Coverage, Lernplanung, Fortschritt, FSRS, Statistiken und Statusübergänge bleiben ohne kostenpflichtige Cloud-KI nutzbar. Im AUTO-Modus sollen nur semantisch anspruchsvolle Aufgaben Kosten verursachen.
+Datenhaltung, Coverage, Lernplanung, Fortschritt, FSRS, Statistiken und Statusübergänge bleiben ohne kostenpflichtige Cloud-KI nutzbar. Im AUTO-Modus sollen Cloud-Kosten nur bei semantisch unsicheren Aufgaben entstehen.
 
 ## Nächste Implementierungsschritte
 
-1. Freie Antwortbewertung mit lokalem Vorfilter und optionaler Cloud-Eskalation über `AIService.evaluateFreeAnswer()`.
-2. Prüfungssimulation ebenfalls auf dieselbe Bewertungslogik umstellen.
-3. Tutor vollständig über `AIService.tutor()` anbinden.
-4. Sichere Cloud-Anbindung über Proxy/Backend.
-5. Kosten-/Nutzungslimit pro Monat und transparente Anzeige in der App.
-6. Import-Pipeline und KI-Funktionen auf echtem iPhone/iPad mit PDF/OCR testen.
+1. Prüfungssimulation auf dieselbe `AIService.evaluateFreeAnswer()`-Logik umstellen.
+2. Tutor vollständig über `AIService.tutor()` anbinden.
+3. Sichere Cloud-Anbindung über Proxy/Backend.
+4. Kosten-/Nutzungslimit pro Monat und transparente Anzeige in der App.
+5. Import-, Zusammenfassungs- und Bewertungs-Pipeline auf echtem iPhone/iPad testen.
 
-## Changelog 3.10
+## Changelog 3.11
 
-- Materialimport auf zentrale AIService-Pipeline umgestellt
-- Lernziele laufen über `AIService.generateLearningGoals()`
-- Karteikarten laufen über `AIService.generateFlashcards()`
-- Quell- und Provider-Provenienz an generierten Inhalten ergänzt
-- FSRS-Ausgangszustand für AI-generierte Karten beibehalten
-- Import-Rollback bei Fehlern ergänzt
-- bestehender Tagesplan wird nach neuem Import invalidiert
-- `ai-service.js` wird vor `app.js` geladen
-- neue Datei `import-ai.js` ergänzt
-- PWA-Cache auf v6 angehoben
+- freie Selbsttest-Antworten auf `AIService.evaluateFreeAnswer()` umgestellt
+- AUTO nutzt lokale Vorbewertung und optionale Cloud-Eskalation
+- kontrollierter LOCAL-Fallback bei Cloud-Ausfall ergänzt
+- Assessment-Evidence speichert Provider, Policy und Feedback
+- Mastery-/Gap-Neuberechnung nach AI-Auswertung eingebaut
+- Tagesplan wird nach neuer Evidenz invalidiert
+- alte direkte Selbsttest-Bewertung wird ohne Doppelerfassung überschrieben
+- neue Datei `free-answer-ai.js` ergänzt
+- PWA-Cache auf v7 angehoben
