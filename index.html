@@ -3,8 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" id="theme-color" content="#f2f2f7">
+  <script>
+    // Muss vor dem ersten Zeichnen laufen, sonst blitzt kurz das falsche
+    // Erscheinungsbild auf. Die Wahl liegt im localStorage, weil sie eine
+    // Einstellung dieses Geraets ist und nicht zu den Lerndaten gehoert.
+    (function(){
+      var choice="auto";
+      try{ choice=localStorage.getItem("lernapp-appearance")||"auto"; }catch(e){}
+      var dark=choice==="dark"||(choice!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.dataset.theme=dark?"dark":"light";
+      document.getElementById("theme-color")?.setAttribute("content",dark?"#000000":"#f2f2f7");
+    })();
+  </script>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Lernapp">
@@ -59,6 +70,7 @@
   <script type="module" src="ai-service.js"></script>
   <script type="module" src="import-ai.js"></script>
   <script type="module" src="app.js"></script>
+  <script type="module" src="appearance.js"></script>
   <script type="module" src="profile-ai-mode.js"></script>
   <script type="module" src="cloud-settings.js"></script>
   <script type="module" src="ai-usage.js"></script>
