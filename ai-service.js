@@ -40,12 +40,29 @@ function normalizeMode(value){
   return Object.values(AI_MODES).includes(value)?value:AI_MODES.AUTO;
 }
 
+function localTokens(text){
+  return new Set(String(text||"").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(x=>x.length>=4));
+}
+
 function localTokenScore(expected,actual){
-  const tokens=text=>new Set(String(text||"").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(x=>x.length>=4));
-  const e=tokens(expected),a=tokens(actual);
+  const e=localTokens(expected),a=localTokens(actual);
   if(!e.size)return 0;
   let hits=0;e.forEach(t=>{if(a.has(t))hits++;});
   return Math.max(0,Math.min(1,hits/e.size));
+}
+
+function localTutorAnswer(message,context){
+  const clean=String(context||"").replace(/\s+/g," ").trim();
+  if(!clean)return "Im hinterlegten Lernmaterial ist für diese Frage kein verwertbarer Quellenkontext vorhanden.";
+  const query=localTokens(message);
+  const sentences=clean.split(/(?<=[.!?])\s+/).map(s=>s.trim()).filter(s=>s.length>=25&&s.length<=900);
+  const ranked=sentences.map((sentence,index)=>{
+    const tokens=localTokens(sentence);let hits=0;query.forEach(t=>{if(tokens.has(t))hits++;});
+    return {sentence,index,score:hits};
+  }).sort((a,b)=>b.score-a.score||a.index-b.index);
+  const selected=(ranked.some(x=>x.score>0)?ranked.filter(x=>x.score>0):ranked).slice(0,4).map(x=>x.sentence);
+  if(!selected.length)return clean.slice(0,1600);
+  return `Aus deinem Lernmaterial lassen sich dazu folgende Kernaussagen ableiten:\n\n${selected.map((s,i)=>`${i+1}. ${s}`).join("\n\n")}\n\nLOCAL ordnet hier nur vorhandene Quellenaussagen nach Textbezug ein und ergänzt kein externes Wissen.`;
 }
 
 const localProvider={
@@ -56,7 +73,7 @@ const localProvider={
     return {provider:"LOCAL",summary:sentences.slice(0,limits[length]||7).join(" "),confidence:0.35};
   },
   async tutor({message="",context=""}={}){
-    return {provider:"LOCAL",answer:`Lokaler Modus: Nutze den bereitgestellten Lernstoff als Grundlage.\n\nFrage: ${message}\n\nKontextauszug: ${String(context).slice(0,1200)}`,confidence:0.25};
+    return {provider:"LOCAL",answer:localTutorAnswer(message,context),confidence:0.30,grounded:true,policy:"LOCAL_SOURCE_EXTRACTIVE"};
   },
   async generateLearningGoals({text=""}={}){
     const sentences=String(text).replace(/\s+/g," ").split(/(?<=[.!?])\s+/).map(s=>s.trim()).filter(s=>s.length>=45);
