@@ -7,7 +7,9 @@ async function injectCloudSettings(){
   if(!content||!profileButton?.classList.contains("active"))return false;
   if(content.querySelector("#cloud-settings-card"))return true;
 
-  const cfg=await window.AIService.getCloudConfig();
+  // Die Karte wird vor dem ersten await eingehängt. Sonst kämen zwei parallele
+  // Aufrufe beide an der Prüfung oben vorbei und die Karte entstünde mehrfach.
+  const cfg={endpoint:"",hasAccessToken:false};
   const card=document.createElement("section");
   card.id="cloud-settings-card";
   card.className="card";
@@ -19,7 +21,7 @@ async function injectCloudSettings(){
     <input id="cloud-endpoint" type="url" inputmode="url" autocomplete="off" placeholder="https://lernapp-ai.deinname.workers.dev" value="${cfg.endpoint||""}">
     <label for="cloud-token">Persönlicher Zugriffsschlüssel</label>
     <input id="cloud-token" type="password" autocomplete="off" placeholder="Nur nötig, wenn dein Proxy geschützt ist">
-    <p class="small muted">Der Zugriffsschlüssel schützt deinen privaten Proxy vor fremder Nutzung. Er ist nicht dein KI-API-Key und wird nur lokal auf diesem Gerät gespeichert.${cfg.hasAccessToken?" Aktuell ist bereits ein Zugriffsschlüssel gespeichert.":""}</p>
+    <p class="small muted">Der Zugriffsschlüssel schützt deinen privaten Proxy vor fremder Nutzung. Er ist nicht dein KI-API-Key und wird nur lokal auf diesem Gerät gespeichert.<span id="cloud-token-hint"></span></p>
     <div class="stack">
       <button type="button" class="primary full" id="cloud-save">Verbindung speichern</button>
       <button type="button" class="secondary full" id="cloud-test">Verbindung testen</button>
@@ -33,6 +35,12 @@ async function injectCloudSettings(){
   const endpoint=card.querySelector("#cloud-endpoint");
   const token=card.querySelector("#cloud-token");
   const status=card.querySelector("#cloud-status");
+
+  const stored=await window.AIService.getCloudConfig();
+  cfg.endpoint=stored.endpoint||"";
+  cfg.hasAccessToken=stored.hasAccessToken;
+  endpoint.value=cfg.endpoint;
+  if(cfg.hasAccessToken)card.querySelector("#cloud-token-hint").textContent=" Aktuell ist bereits ein Zugriffsschlüssel gespeichert.";
   card.querySelector("#cloud-save").onclick=async()=>{
     try{
       const accessToken=token.value.trim()?token.value:undefined;

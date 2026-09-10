@@ -36,6 +36,56 @@ async function writeAppSettings(patch){
   });
 }
 
+const USAGE_RECORD_ID="ai-usage";
+const USAGE_KEEP_DAYS=90;
+
+async function readSettingsRecord(id){
+  const db=await openSettingsDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction("settings","readonly");
+    const r=tx.objectStore("settings").get(id);
+    r.onsuccess=()=>resolve(r.result||null);
+    r.onerror=()=>reject(r.error);
+    tx.oncomplete=()=>db.close();
+  });
+}
+
+async function writeSettingsRecord(record){
+  const db=await openSettingsDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction("settings","readwrite");
+    tx.objectStore("settings").put(record);
+    tx.oncomplete=()=>{db.close();resolve(record);};
+    tx.onerror=()=>{db.close();reject(tx.error);};
+  });
+}
+
+function usageDayKey(date=new Date()){
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+}
+
+function emptyUsageDay(){return {total:0,ok:0,failed:0,tasks:{}};}
+
+// Gezählt wird jede an den Proxy gesendete Anfrage, nicht jede Aufgabe: bei
+// Drosselung wiederholt der Client, und jeder Versuch verbraucht Kontingent.
+async function recordCloudUsage(task,ok){
+  const record=(await readSettingsRecord(USAGE_RECORD_ID))||{id:USAGE_RECORD_ID,days:{}};
+  const key=usageDayKey();
+  const day={...emptyUsageDay(),...record.days[key]};
+  day.total++;
+  if(ok)day.ok++;else day.failed++;
+  day.tasks={...day.tasks,[task]:(day.tasks[task]||0)+1};
+  record.days={...record.days,[key]:day};
+  const keys=Object.keys(record.days).sort();
+  for(const stale of keys.slice(0,Math.max(0,keys.length-USAGE_KEEP_DAYS)))delete record.days[stale];
+  await writeSettingsRecord(record);
+}
+
+async function cloudUsageToday(){
+  const record=await readSettingsRecord(USAGE_RECORD_ID);
+  return {...emptyUsageDay(),...record?.days?.[usageDayKey()]};
+}
+
 function normalizeMode(value){
   return Object.values(AI_MODES).includes(value)?value:AI_MODES.AUTO;
 }
@@ -138,9 +188,24 @@ async function cloudConfig(){
   };
 }
 
+// Gibt den Grund zurück, warum CLOUD gerade nicht nutzbar ist, oder null. Ein
+// blosses true/false würde im CLOUD-Modus zu einer irreführenden Fehlermeldung
+// führen, wenn in Wahrheit das Tageslimit greift.
+async function cloudUnavailableReason(){
+  const cfg=await cloudConfig();
+  if(!cfg.endpoint)return "Cloud-KI ist noch nicht konfiguriert.";
+  if(!navigator.onLine)return "Cloud-KI ist offline nicht verfügbar.";
+  const limit=Number((await readAppSettings()).cloudDailyLimit)||0;
+  if(limit>0){
+    const used=(await cloudUsageToday()).total;
+    if(used>=limit)return `Das Tageslimit von ${limit} Cloud-Anfragen ist erreicht. LOCAL bleibt kostenfrei verfügbar.`;
+  }
+  return null;
+}
+
 const cloudProvider={
   id:"CLOUD",
-  async isAvailable(){const cfg=await cloudConfig();return Boolean(cfg.endpoint&&navigator.onLine);},
+  async isAvailable(){return !(await cloudUnavailableReason());},
   async call(task,payload){
     const cfg=await cloudConfig();
     if(!cfg.endpoint)throw new Error("Cloud-KI ist noch nicht konfiguriert.");
@@ -154,6 +219,7 @@ const cloudProvider={
       const response=await fetch(cfg.endpoint,{method:"POST",headers,body:request});
       let body=null;
       try{body=await response.json();}catch{}
+      await recordCloudUsage(task,response.ok).catch(()=>{});
       if(response.ok)return body;
       if(!CLOUD_RETRY_STATUS.has(response.status)||attempt>=CLOUD_MAX_ATTEMPTS)throw new Error(body?.error||`Cloud-KI Fehler (${response.status})`);
       const delay=cloudRetryDelay(attempt,response.headers.get("Retry-After"));
@@ -174,7 +240,8 @@ async function selectedProvider(){
   const mode=normalizeMode(settings.aiMode);
   if(mode===AI_MODES.LOCAL)return localProvider;
   if(mode===AI_MODES.CLOUD){
-    if(!(await cloudProvider.isAvailable()))throw new Error("CLOUD ist gewählt, aber die Cloud-KI ist derzeit nicht verfügbar.");
+    const reason=await cloudUnavailableReason();
+    if(reason)throw new Error(reason);
     return cloudProvider;
   }
   return (await cloudProvider.isAvailable())?cloudProvider:localProvider;
@@ -206,6 +273,25 @@ const AIService={
     if(!response.ok)throw new Error(body?.error||`Verbindung fehlgeschlagen (${response.status})`);
     return {...body,latencyMs:Math.round(performance.now()-started)};
   },
+  async usage(days=7){
+    const record=await readSettingsRecord(USAGE_RECORD_ID);
+    const stored=record?.days||{};
+    const recent=[];
+    for(let offset=days-1;offset>=0;offset--){
+      const date=new Date();
+      date.setDate(date.getDate()-offset);
+      const key=usageDayKey(date);
+      recent.push({date:key,...emptyUsageDay(),...stored[key]});
+    }
+    const limit=Number((await readAppSettings()).cloudDailyLimit)||0;
+    return {today:await cloudUsageToday(),days:recent,limit,blockedReason:await cloudUnavailableReason()};
+  },
+  async setDailyLimit(limit){
+    const value=Math.max(0,Math.floor(Number(limit)||0));
+    await writeAppSettings({cloudDailyLimit:value});
+    window.dispatchEvent(new CustomEvent("lernapp:ai-usage-changed"));
+    return value;
+  },
   async status(){const mode=await this.getMode();const available=await cloudProvider.isAvailable();const provider=await selectedProvider().catch(()=>null);return {mode,activeProvider:provider?.id||null,cloudAvailable:available,localAvailable:true};},
   async run(method,payload){const provider=await selectedProvider();if(typeof provider[method]!=="function")throw new Error(`AIService-Methode unbekannt: ${method}`);return provider[method](payload);},
   summarize(payload){return this.run("summarize",payload);},
@@ -217,7 +303,8 @@ const AIService={
     const mode=await this.getMode();
     if(mode===AI_MODES.LOCAL)return localProvider.evaluateFreeAnswer(payload);
     if(mode===AI_MODES.CLOUD){
-      if(!(await cloudProvider.isAvailable()))throw new Error("CLOUD ist gewählt, aber die Cloud-KI ist derzeit nicht verfügbar.");
+      const reason=await cloudUnavailableReason();
+      if(reason)throw new Error(reason);
       return cloudProvider.evaluateFreeAnswer(payload);
     }
     const local=await localProvider.evaluateFreeAnswer(payload);
