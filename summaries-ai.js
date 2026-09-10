@@ -43,12 +43,81 @@ function summaryToast(message){
   setTimeout(()=>el.remove(),2200);
 }
 
-function summaryTextFromDocument(documentRecord){
-  return (documentRecord?.pages||[])
-    .map(page=>String(page.text||"").trim())
-    .filter(Boolean)
-    .join("\n\n")
-    .slice(0,120000);
+// Der Proxy begrenzt den Quelltext auf 60.000 Zeichen. Abschnitte bleiben mit
+// Sicherheitsabstand darunter, damit die Prompt-Rahmung mit hineinpasst.
+const SUMMARY_SECTION_CHARS=40000;
+const SUMMARY_MAX_SECTIONS=40;
+const SUMMARY_MAX_REDUCE_ROUNDS=4;
+
+// Seitengrenzen bleiben nach Möglichkeit erhalten, damit ein Abschnitt nicht
+// mitten in einem Satz beginnt und der Quellenbezug lesbar bleibt.
+function summarySections(documentRecord){
+  const sections=[];
+  let current="";
+  for(const page of documentRecord?.pages||[]){
+    const text=String(page.text||"").trim();
+    if(!text)continue;
+    if(text.length>=SUMMARY_SECTION_CHARS){
+      if(current){sections.push(current);current="";}
+      for(let i=0;i<text.length;i+=SUMMARY_SECTION_CHARS)sections.push(text.slice(i,i+SUMMARY_SECTION_CHARS));
+      continue;
+    }
+    if(current.length+text.length+2>SUMMARY_SECTION_CHARS){sections.push(current);current=text;}
+    else current=current?`${current}\n\n${text}`:text;
+  }
+  if(current)sections.push(current);
+  return sections;
+}
+
+// Teilzusammenfassungen so lange bündeln, bis sie gemeinsam in einen Aufruf
+// passen. Erst der letzte Durchgang wendet die vom Nutzer gewählte Länge an;
+// die Zwischenstufen bleiben ausführlich, damit unterwegs nichts verloren geht.
+async function summaryReduce(texts,length,documentRecord,onProgress){
+  let level=texts;
+  for(let round=1;;round++){
+    const merged=level.join("\n\n");
+    if(level.length===1||merged.length<=SUMMARY_SECTION_CHARS){
+      return window.AIService.summarize({text:merged,length,title:documentRecord.title,documentId:documentRecord.id});
+    }
+    if(round>SUMMARY_MAX_REDUCE_ROUNDS)throw new Error("Das Material ließ sich nicht auf eine Zusammenfassung verdichten.");
+    const groups=[];
+    let current=[],size=0;
+    for(const text of level){
+      if(size+text.length>SUMMARY_SECTION_CHARS&&current.length){groups.push(current);current=[];size=0;}
+      current.push(text);size+=text.length+2;
+    }
+    if(current.length)groups.push(current);
+    if(groups.length>=level.length)throw new Error("Das Material ließ sich nicht auf eine Zusammenfassung verdichten.");
+    const next=[];
+    for(const [index,group] of groups.entries()){
+      onProgress?.(`Verdichte ${index+1}/${groups.length}`);
+      const result=await window.AIService.summarize({text:group.join("\n\n"),length:"detailed",title:documentRecord.title,documentId:documentRecord.id});
+      const text=String(result?.summary||"").trim();
+      if(text)next.push(text);
+    }
+    if(!next.length)throw new Error("Es wurde keine Zusammenfassung erzeugt.");
+    level=next;
+  }
+}
+
+async function summarizeDocument(documentRecord,length,onProgress){
+  const sections=summarySections(documentRecord);
+  const truncatedSections=Math.max(0,sections.length-SUMMARY_MAX_SECTIONS);
+  const used=sections.slice(0,SUMMARY_MAX_SECTIONS);
+  if(used.length<=1){
+    const result=await window.AIService.summarize({text:used[0]||"",length,title:documentRecord.title,documentId:documentRecord.id});
+    return {...result,sections:used.length,truncatedSections};
+  }
+  const partials=[];
+  for(const [index,section] of used.entries()){
+    onProgress?.(`Abschnitt ${index+1}/${used.length}`);
+    const result=await window.AIService.summarize({text:section,length:"detailed",title:documentRecord.title,documentId:documentRecord.id});
+    const text=String(result?.summary||"").trim();
+    if(text)partials.push(text);
+  }
+  if(!partials.length)throw new Error("Es wurde keine Zusammenfassung erzeugt.");
+  const final=await summaryReduce(partials,length,documentRecord,onProgress);
+  return {...final,sections:used.length,truncatedSections};
 }
 
 function summaryLengthLabel(length){
@@ -63,9 +132,16 @@ function renderStoredSummary(section,entry){
     return;
   }
   const confidence=Number.isFinite(entry.confidence)?` · Vertrauen ${Math.round(entry.confidence*100)} %`:"";
+  const sections=entry.sections>1?` · aus ${entry.sections} Abschnitten zusammengeführt`:"";
+  // Ein abgeschnittenes Material muss sichtbar sein, sonst wirkt die
+  // Zusammenfassung vollständiger als sie ist.
+  const truncated=entry.truncatedSections>0
+    ? `<div class="source">Achtung: ${entry.truncatedSections} weitere Abschnitte wurden nicht einbezogen. Das Material ist für einen Durchgang zu umfangreich.</div>`
+    : "";
   output.innerHTML=`
     <div class="answer ai-summary-answer">${summaryEsc(entry.summary||"")}</div>
-    <div class="source">${summaryEsc(entry.provider||"LOCAL")}${confidence} · ${summaryEsc(summaryLengthLabel(entry.length))}</div>
+    <div class="source">${summaryEsc(entry.provider||"LOCAL")}${confidence} · ${summaryEsc(summaryLengthLabel(entry.length))}${sections}</div>
+    ${truncated}
   `;
 }
 
@@ -75,8 +151,8 @@ async function generateDocumentSummary(documentId,length,section){
   }
   const documentRecord=await summaryGetDocument(documentId);
   if(!documentRecord)throw new Error("Material wurde nicht gefunden.");
-  const text=summaryTextFromDocument(documentRecord);
-  if(text.length<20)throw new Error("Für dieses Material ist nicht genug Text vorhanden.");
+  const totalChars=summarySections(documentRecord).reduce((sum,s)=>sum+s.length,0);
+  if(totalChars<20)throw new Error("Für dieses Material ist nicht genug Text vorhanden.");
 
   const button=section.querySelector(`[data-summary-length="${length}"]`);
   const buttons=[...section.querySelectorAll("[data-summary-length]")];
@@ -85,17 +161,16 @@ async function generateDocumentSummary(documentId,length,section){
   if(button)button.textContent="Erstelle …";
 
   try{
-    const result=await window.AIService.summarize({
-      text,
-      length,
-      title:documentRecord.title,
-      documentId:documentRecord.id
+    const result=await summarizeDocument(documentRecord,length,progress=>{
+      if(button)button.textContent=progress;
     });
     const entry={
       summary:String(result?.summary||"").trim(),
       provider:result?.provider||"UNKNOWN",
       confidence:Number.isFinite(result?.confidence)?result.confidence:null,
       length,
+      sections:result?.sections||1,
+      truncatedSections:result?.truncatedSections||0,
       generatedAt:new Date().toISOString(),
       aiMode:await window.AIService.getMode()
     };
