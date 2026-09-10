@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.21 — 10.09.2026
+## Version 3.22 — 10.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -761,6 +761,27 @@ Die App bzw. Entwicklung soll regelmäßig prüfen:
 
 Nach größeren Projektphasen: Master Spec aktualisieren, Changelog ergänzen, Selbstchecks ausführen, Fehler beheben und erneut testen.
 
+### Selbstcheck in der App
+
+Der Selbstcheck ist im Profil ausführbar und deckt alle oben genannten Punkte ab:
+
+| Prüfung | Inhalt |
+|---|---|
+| Coverage | Quellenabdeckung, Anteil der Lernziele mit Karteikarte, Anteil der geprüften Lernziele |
+| Verwaiste Daten | Karten, Evidence, Mastery, Wissenslücken und Reviews ohne zugehöriges Lernziel oder Material |
+| Quellenreferenzen | Lernziele, deren Seitenverweis im Material nicht existiert, sowie fehlende Quellenausschnitte |
+| Dubletten | inhaltlich nahezu gleiche Lernziele je Material und mehrfach automatisch erzeugte Karten je Lernziel |
+| Mastery-Invarianten | fehlende Mastery-Datensätze, falsche Evidenzzahlen, Werte außerhalb von 0 bis 1, Status ohne Evidence, `MASTERED` ohne die in Kapitel 6 geforderten Belege |
+| FSRS-Verträge | fehlender FSRS-Zustand, Abweichung zwischen Fälligkeit und FSRS-Zustand, unzulässige Werte |
+| Import- und Lösch-Cascades | Material ohne Lernziele, Lernziele ohne Karte, Pläne und Prüfungssitzungen mit Verweisen auf gelöschte Lernziele |
+| Offline-Cache | ob die tatsächlich geladenen Dateien im Cache liegen |
+| Backup und Restore | zerstörungsfreier Probelauf von Serialisierung und Wiedereinlesen mit Abgleich der Datensatzzahlen |
+| LOCAL/AUTO/CLOUD-Parität | ob alle sechs Aufgaben über die AIService-Abstraktion laufen, samt aktuellem Modus und Cloud-Verfügbarkeit |
+
+Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Automatisches Aufräumen ist bewusst ausgeschlossen, weil das Löschen von Lerndaten nach Kapitel 22 nur über ein Backup umkehrbar wäre.
+
+**Status:** implementiert.
+
 ## 34. Feature-Status Gesamtübersicht
 
 | Bereich | Zielstatus |
@@ -808,6 +829,7 @@ Nach größeren Projektphasen: Master Spec aktualisieren, Changelog ergänzen, S
 | Cloud-Proxy live | OFFEN |
 | AI-Kosten-/Nutzungslimit | IMPLEMENTIERT |
 | AI-Nutzungsprotokoll | IMPLEMENTIERT |
+| Selbstcheck nach Kapitel 33 | IMPLEMENTIERT |
 | Knowledge Map | OPTIONAL/OFFEN |
 | vollständiger iPhone/iPad Endtest | OFFEN |
 
@@ -836,21 +858,28 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 19. LOCAL/AUTO/CLOUD-Modi testen.
 20. CLOUD nach Proxy-Deployment für alle fünf AIService-Aufgaben testen.
 
-## 36. Offene Prioritäten ab Version 3.21
+## 36. Offene Prioritäten ab Version 3.22
 
 1. Cloudflare Worker tatsächlich deployen, `GEMINI_API_KEY`/`GEMINI_MODEL`/Origin setzen.
 2. Cloud-Verbindung auf echtem iPhone testen.
 3. Alle sechs CLOUD-AIService-Funktionen E2E testen, insbesondere `analyzeImage` mit einer echten handschriftlichen Mitschrift.
 4. Highlights inhaltlich gegen reale Studienunterlagen prüfen.
-5. Audits aus Kapitel 33 als ausführbaren Selbstcheck in der App bereitstellen.
-6. Erweiterte Gamification bewerten, soweit sie das Lernen stützt.
-7. Knowledge Map bewerten.
+5. Erweiterte Gamification bewerten, soweit sie das Lernen stützt.
+6. Knowledge Map bewerten.
 8. vollständigen iPhone/iPad-Abnahmetest durchführen.
 9. danach Release Candidate der persönlichen PWA erstellen.
 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.22
+
+- Selbstcheck aus Kapitel 33 als ausfuehrbare Pruefung im Profil ergaenzt
+- geprueft werden Coverage, verwaiste Daten, Quellenreferenzen, Dubletten, Mastery-Invarianten, FSRS-Vertraege, Cascades, Offline-Cache, Backup und Provider-Paritaet
+- Backup-Pruefung laeuft als zerstoerungsfreier Probelauf ohne Datenaenderung
+- Offline-Cache wird gegen die tatsaechlich geladenen Dateien geprueft statt gegen eine zweite Liste neben dem Service Worker
+- Selbstcheck repariert bewusst nichts automatisch, weil Loeschen von Lerndaten nur ueber ein Backup umkehrbar ist
 
 ## Changelog 3.21
 
