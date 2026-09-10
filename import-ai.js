@@ -12,6 +12,12 @@ async function aiImportAll(store){const db=await aiImportOpenDB();return new Pro
 async function aiImportPut(store,value){const db=await aiImportOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readwrite");tx.objectStore(store).put(value);tx.oncomplete=()=>{db.close();resolve(value);};tx.onerror=()=>{db.close();reject(tx.error);};});}
 async function aiImportDelete(store,id){const db=await aiImportOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readwrite");tx.objectStore(store).delete(id);tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>{db.close();reject(tx.error);};});}
 
+// Ohne diese Rückmeldung wirkt eine Drosselungspause wie ein eingefrorener Import.
+window.addEventListener("lernapp:cloud-throttled",event=>{
+  const seconds=Math.round((event.detail?.delayMs||0)/1000);
+  aiImportToast(`Kontingent kurz erschöpft, weiter in ${seconds} s …`);
+});
+
 async function aiImportActiveModule(){const modules=await aiImportAll("modules");if(!modules.length)throw new Error("Kein Lernmodul vorhanden.");return modules[0];}
 
 async function aiImportTesseract(){

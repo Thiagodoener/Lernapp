@@ -1,4 +1,4 @@
-const CACHE = "lernapp-pwa-v12";
+const CACHE = "lernapp-pwa-v13";
 const LOCAL = [
   "./","./index.html","./styles.css","./app.js","./ai-service.js","./import-ai.js","./profile-ai-mode.js","./cloud-settings.js","./summaries-ai.js","./free-answer-ai.js","./exam-ai.js","./tutor-ai.js","./material-delete.js",
   "./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png"

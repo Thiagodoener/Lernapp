@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.17 — 10.09.2026
+## Version 3.18 — 10.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -579,7 +579,9 @@ Unterstützte Tasks:
 
 ### Kontingent und Kosten
 
-Textaufgaben sind im kostenlosen Kontingent für den Einzelbetrieb in der Regel ausreichend abgedeckt. `analyzeImage` verbraucht pro Bild deutlich mehr Kontingent als eine Textanfrage. Werden Minuten- oder Tagesgrenzen erreicht, bleibt LOCAL der kostenfreie Fallback. Videoanalyse ist bewusst nicht Teil dieser Version, weil sie mit kostenfreiem Betrieb nicht verlässlich vereinbar ist.
+Textaufgaben sind im kostenlosen Kontingent für den Einzelbetrieb in der Regel ausreichend abgedeckt. `analyzeImage` verbraucht pro Bild deutlich mehr Kontingent als eine Textanfrage. Werden Minuten- oder Tagesgrenzen erreicht, bleibt LOCAL der kostenfreie Fallback.
+
+Gedrosselte Anfragen dürfen einen laufenden Import nicht abbrechen. Der Proxy reicht die Statuscodes 429 und 503 samt `Retry-After` an die PWA durch, statt sie als endgültigen Fehler zu verpacken. Die PWA wiederholt solche Anfragen bis zu viermal mit wachsendem Abstand und meldet die Wartezeit sichtbar, damit die Pause nicht wie ein hängender Import wirkt. Alle übrigen Fehler bleiben endgültig und werden nicht wiederholt. Videoanalyse ist bewusst nicht Teil dieser Version, weil sie mit kostenfreiem Betrieb nicht verlässlich vereinbar ist.
 
 ## 27. UI/UX-Anforderungen
 
@@ -801,6 +803,13 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.18
+
+- Drosselung durch das kostenlose Kontingent bricht laufende Importe nicht mehr ab
+- Proxy reicht 429 und 503 samt `Retry-After` durch, statt sie als 502 zu verpacken
+- PWA wiederholt gedrosselte Anfragen bis zu viermal mit wachsendem Abstand
+- Wartezeit wird waehrend des Imports sichtbar gemeldet
 
 ## Changelog 3.17
 
