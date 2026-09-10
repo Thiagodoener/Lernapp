@@ -115,19 +115,61 @@ function aiImportSourcePage(pages,answerKey){
   return pages[0]||{page:1,text:""};
 }
 
+const AI_IMPORT_SKIP_HEADINGS=/(inhaltsverzeichnis|literaturverzeichnis|quellenverzeichnis|abbildungsverzeichnis|tabellenverzeichnis|abkürzungsverzeichnis|stichwortverzeichnis|impressum|table of contents|bibliography)/i;
+const AI_IMPORT_MIN_WORDS=40;
+const AI_IMPORT_MAX_DIGIT_RATIO=0.2;
+const AI_IMPORT_DUPLICATE_THRESHOLD=0.8;
+const AI_IMPORT_CARD_BATCH=20;
+
+// Zahlen zaehlen unabhaengig von ihrer Laenge mit: in Lernstoff unterscheiden sich
+// Aufzaehlungen, Formeln und Jahreszahlen oft nur durch eine einzelne Ziffer.
+function aiImportContentWords(text){
+  return new Set(String(text||"").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>=4||/^\p{N}+$/u.test(w)));
+}
+
+function aiImportSimilarity(a,b){
+  if(!a.size||!b.size)return 0;
+  let shared=0;
+  a.forEach(w=>{if(b.has(w))shared++;});
+  return shared/(a.size+b.size-shared);
+}
+
+// Verzeichnisse, Register und Seitenzahl-Wüsten tragen keinen Lernstoff. Sie hier
+// auszusortieren spart pro übersprungener Seite einen kompletten KI-Aufruf.
+function aiImportHasLearningValue(text){
+  const value=String(text||"").trim();
+  if(AI_IMPORT_SKIP_HEADINGS.test(value.slice(0,200)))return false;
+  const words=value.split(/\s+/).filter(Boolean);
+  if(words.length<AI_IMPORT_MIN_WORDS)return false;
+  const digits=(value.match(/\d/g)||[]).length;
+  if(digits/value.length>AI_IMPORT_MAX_DIGIT_RATIO)return false;
+  return true;
+}
+
 async function aiImportGenerateGoals(pages,documentRecord,module){
   if(!window.AIService)throw new Error("AIService ist nicht verfügbar.");
   const created=[];
   const providerStatus=await window.AIService.status().catch(()=>null);
   const mode=await window.AIService.getMode();
+  const accepted=[];
+  let skippedPages=0,duplicates=0;
+  // Die Relevanzpruefung soll Ballast aus umfangreichen Dokumenten fernhalten.
+  // Ein einseitiger Import ist eine bewusste Auswahl des Nutzers, etwa das Foto
+  // einer kurzen Mitschrift, und darf nicht wegen seiner Kuerze verworfen werden.
+  const filterBulkPages=pages.length>1;
   for(const page of pages){
     const text=String(page.text||"").trim();
-    if(text.length<45)continue;
+    if(filterBulkPages&&!aiImportHasLearningValue(text)){skippedPages++;continue;}
     const result=await window.AIService.generateLearningGoals({text,title:documentRecord.title,sourcePage:page.page,documentId:documentRecord.id});
     const candidates=(result?.goals||[]).slice(0,3);
     for(const candidate of candidates){
       const answerKey=String(candidate.answerKey||candidate.statement||"").trim();
       if(!answerKey)continue;
+      // Dieselbe Aussage taucht in Skripten oft auf mehreren Seiten auf. Ohne
+      // diesen Vergleich entstehen daraus mehrere fast identische Karteikarten.
+      const fingerprint=aiImportContentWords(`${candidate.statement||""} ${answerKey}`);
+      if(accepted.some(known=>aiImportSimilarity(known,fingerprint)>=AI_IMPORT_DUPLICATE_THRESHOLD)){duplicates++;continue;}
+      accepted.push(fingerprint);
       const source=aiImportSourcePage([page],answerKey);
       const goal={
         id:aiImportUid(),moduleId:module.id,documentId:documentRecord.id,
@@ -142,18 +184,29 @@ async function aiImportGenerateGoals(pages,documentRecord,module){
       created.push(goal);
     }
   }
-  return created;
+  return {goals:created,skippedPages,duplicates};
 }
 
+// Alle Lernziele in einem Aufruf zu schicken hat bei grossen Dokumenten
+// stillschweigend Karten verloren: die Nutzlast wurde serverseitig gekuerzt.
+// Deshalb in Stapeln arbeiten und die Ergebnisse zusammenfuehren.
 async function aiImportGenerateCards(goals,module){
   if(!goals.length)return [];
-  const result=await window.AIService.generateFlashcards({goals:goals.map(g=>({id:g.id,statement:g.statement,answerKey:g.answerKey}))});
   const byGoal=new Map(goals.map(g=>[g.id,g]));
+  const generatedCards=[];
+  for(let i=0;i<goals.length;i+=AI_IMPORT_CARD_BATCH){
+    const batch=goals.slice(i,i+AI_IMPORT_CARD_BATCH);
+    if(goals.length>AI_IMPORT_CARD_BATCH)aiImportToast(`Karteikarten ${i+1} bis ${Math.min(i+AI_IMPORT_CARD_BATCH,goals.length)} von ${goals.length}`);
+    const result=await window.AIService.generateFlashcards({goals:batch.map(g=>({id:g.id,statement:g.statement,answerKey:g.answerKey}))});
+    for(const generated of result?.flashcards||[])generatedCards.push({generated,confidence:result?.confidence,provider:result?.provider});
+  }
   const created=[];
-  for(const generated of result?.flashcards||[]){
-    const goal=byGoal.get(generated.goalId);if(!goal)continue;
+  const seenGoals=new Set();
+  for(const {generated,confidence,provider} of generatedCards){
+    const goal=byGoal.get(generated.goalId);if(!goal||seenGoals.has(goal.id))continue;
+    seenGoals.add(goal.id);
     const fsrsCard=await aiImportNewFSRSCard();
-    const card={id:aiImportUid(),moduleId:module.id,goalId:goal.id,prompt:String(generated.prompt||goal.statement).trim(),answer:String(generated.answer||goal.answerKey).trim(),dueAt:fsrsCard.due,fsrsCard,reviewCount:0,lapseCount:0,createdAt:aiImportNow(),manual:false,generatedBy:"AIService",aiProvider:result?.provider||goal.aiProvider||"UNKNOWN",aiMode:goal.aiMode,generationConfidence:Number.isFinite(result?.confidence)?result.confidence:null};
+    const card={id:aiImportUid(),moduleId:module.id,goalId:goal.id,prompt:String(generated.prompt||goal.statement).trim(),answer:String(generated.answer||goal.answerKey).trim(),dueAt:fsrsCard.due,fsrsCard,reviewCount:0,lapseCount:0,createdAt:aiImportNow(),manual:false,generatedBy:"AIService",aiProvider:provider||goal.aiProvider||"UNKNOWN",aiMode:goal.aiMode,generationConfidence:Number.isFinite(confidence)?confidence:null};
     await aiImportPut("flashcards",card);created.push(card);
   }
   return created;
@@ -169,13 +222,14 @@ async function aiImportStudyFile(file){
   try{
     await aiImportPut("documents",documentRecord);stored=true;
     aiImportToast("Lernziele werden erstellt …");
-    const goals=await aiImportGenerateGoals(pages,documentRecord,module);
+    const {goals,skippedPages,duplicates}=await aiImportGenerateGoals(pages,documentRecord,module);
     if(!goals.length)throw new Error("Es konnten keine sinnvollen Lernziele erzeugt werden.");
     aiImportToast("Karteikarten werden erstellt …");
     const cards=await aiImportGenerateCards(goals,module);
     const planId=`${module.id}:${aiImportDayKey()}`;
     await aiImportDelete("plans",planId).catch(()=>{});
-    aiImportToast(`${goals.length} Lernziele · ${cards.length} Karteikarten erstellt`);
+    const filtered=[skippedPages?`${skippedPages} Seiten ohne Lernstoff übersprungen`:null,duplicates?`${duplicates} Dubletten verworfen`:null].filter(Boolean);
+    aiImportToast(`${goals.length} Lernziele · ${cards.length} Karteikarten erstellt${filtered.length?` · ${filtered.join(" · ")}`:""}`);
     return documentRecord;
   }catch(error){
     if(stored){

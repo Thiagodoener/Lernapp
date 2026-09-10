@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.16 — 10.09.2026
+## Version 3.17 — 10.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -217,7 +217,18 @@ Aus Material werden konkrete, lernbare Ziele erzeugt. Lernziele müssen:
 - für Assessment und Planung verwendbar sein
 - Coverage ermöglichen
 
-**Status:** automatische Generierung über `AIService.generateLearningGoals()` implementiert; lokale Baseline und Cloud-Schnittstelle vorhanden.
+### Relevanzprüfung und Dubletten
+
+Lernziele werden pro Quellseite erzeugt. Damit daraus kein Wildwuchs entsteht, gelten zwei Regeln:
+
+- **Relevanzprüfung:** Seiten ohne Lernstoff werden übersprungen, bevor ein KI-Aufruf entsteht. Erkannt werden Verzeichnisse und Register, zu dünne Seiten und Seiten mit überwiegend Ziffern. Die Prüfung greift nur bei mehrseitigen Dokumenten; ein einseitiger Import ist eine bewusste Auswahl des Nutzers und wird nie wegen seiner Kürze verworfen.
+- **Dublettenprüfung:** Inhaltlich nahezu gleiche Lernziele innerhalb eines Dokuments werden verworfen. Verglichen wird die Überschneidung der Inhaltswörter; Zahlen zählen unabhängig von ihrer Länge mit, damit sich Aufzählungen, Formeln und Jahreszahlen weiterhin unterscheiden.
+
+Die Dublettenprüfung wirkt bewusst nur innerhalb eines Dokuments. Dokumentübergreifendes Zusammenlegen würde die materialbezogene Lösch-Cascade aus Kapitel 22 verletzen.
+
+Beides dient zugleich dem Kostenprinzip: jede übersprungene Seite spart einen vollständigen KI-Aufruf.
+
+**Status:** automatische Generierung über `AIService.generateLearningGoals()` implementiert; lokale Baseline und Cloud-Schnittstelle vorhanden. Relevanz- und Dublettenprüfung implementiert.
 
 ## 9. Karteikarten und FSRS
 
@@ -229,6 +240,10 @@ Aus Material werden konkrete, lernbare Ziele erzeugt. Lernziele müssen:
 - Again / Hard / Good / Easy
 - FSRS bestimmt den Wiederholungszeitpunkt
 - Antwort anzeigen und Selbstbewertung dürfen nicht fälschlich als unabhängiger Recall gewertet werden
+
+### Erzeugung in Stapeln
+
+Karteikarten werden in Stapeln von höchstens 20 Lernzielen erzeugt. Vorher gingen alle Lernziele eines Dokuments in einem einzigen Aufruf raus; die Nutzlast wurde serverseitig gekürzt, sodass bei umfangreichem Material ein Teil der Karten stillschweigend verloren ging. Pro Lernziel entsteht höchstens eine Karte.
 
 **Status:** PWA verwendet `ts-fsrs` 5.4.1 mit expliziten 21 FSRS-6-Parametern. Native Implementierung verwendet FSRS-6-kompatible Swift-Abhängigkeit. Manuelle Karten sind vorgesehen/implementiert.
 
@@ -717,6 +732,9 @@ Nach größeren Projektphasen: Master Spec aktualisieren, Changelog ergänzen, S
 | Highlights | IMPLEMENTIERT / Qualitätsaudit offen |
 | Lernziele | IMPLEMENTIERT |
 | automatische Karteikarten | IMPLEMENTIERT |
+| Relevanzprüfung beim Import | IMPLEMENTIERT |
+| Dublettenprüfung für Lernziele | IMPLEMENTIERT |
+| Karteikartenerzeugung in Stapeln | IMPLEMENTIERT |
 | manuelle Karteikarten | IMPLEMENTIERT |
 | FSRS | IMPLEMENTIERT |
 | Quiz/offene Fragen | IMPLEMENTIERT |
@@ -783,6 +801,14 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.17
+
+- Relevanzprüfung beim Import ergänzt: Verzeichnisse, Register und zu dünne Seiten erzeugen keine Lernziele und keinen KI-Aufruf mehr
+- Relevanzprüfung greift bewusst nicht bei einseitigen Importen, damit kurze Mitschriften nicht verworfen werden
+- Dublettenprüfung für Lernziele innerhalb eines Dokuments ergänzt
+- Karteikartenerzeugung auf Stapel von 20 Lernzielen umgestellt; zuvor gingen bei umfangreichem Material Karten stillschweigend verloren
+- Importmeldung nennt jetzt übersprungene Seiten und verworfene Dubletten
 
 ## Changelog 3.16
 
