@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.19 — 10.09.2026
+## Version 3.20 — 10.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -205,7 +205,18 @@ Grundregel: `MASTERED` darf nur bei ausreichender Evidence und ausreichender Con
 - Highlights direkt mit Quelle verbinden
 - Zusammenfassungen erzeugen keine Mastery-Evidence
 
-**Status:** Zusammenfassungen über `AIService.summarize()` implementiert. Highlights grundsätzlich vorhanden. Weitere Qualitätsprüfung mit realen Studienunterlagen erforderlich.
+### Umfangreiche Dokumente
+
+Der Proxy begrenzt den Quelltext je Aufruf. Ein vollständiges Skript passt deshalb nicht in einen Durchgang. Statt den Text abzuschneiden, wird das Material abschnittsweise verarbeitet:
+
+1. Das Dokument wird entlang der Seitengrenzen in Abschnitte unterhalb des Serverlimits geteilt.
+2. Jeder Abschnitt wird ausführlich zusammengefasst, damit unterwegs nichts verloren geht.
+3. Die Teilergebnisse werden gebündelt und verdichtet, bis sie gemeinsam in einen Aufruf passen.
+4. Erst der letzte Durchgang wendet die vom Nutzer gewählte Länge an.
+
+Stilles Abschneiden ist nach Kapitel 3.4 unzulässig. Reicht selbst dieses Verfahren nicht aus, wird die Zahl der ausgelassenen Abschnitte im Ergebnis ausgewiesen. Die Anzahl der zusammengeführten Abschnitte wird ebenfalls angezeigt.
+
+**Status:** Zusammenfassungen über `AIService.summarize()` implementiert, abschnittsweise Verarbeitung implementiert. Highlights grundsätzlich vorhanden. Weitere Qualitätsprüfung mit realen Studienunterlagen erforderlich.
 
 ## 8. Lernziele
 
@@ -451,7 +462,11 @@ SHOULD:
 - Entwicklung über Zeit
 - Planerfüllung
 
-**Status:** mehrere Analytics-Metriken implementiert; vollständige PWA-UX-Parität im Endaudit prüfen.
+### Verlauf
+
+Pro Modul und Lerntag wird ein Messpunkt mit Mastery, Content Coverage, Assessment Coverage und Prüfungsbereitschaft festgehalten, sobald der Fortschritt geöffnet wird. Mehrfaches Öffnen an einem Tag überschreibt den Messpunkt, statt Duplikate anzulegen. Der Verlauf zeigt je Kennzahl den aktuellen Stand, die Veränderung in Prozentpunkten seit dem ersten Messpunkt und eine Sparkline auf fester Skala von 0 bis 100 Prozent. Eine automatische Skalierung ist ausdrücklich nicht gewollt, weil sie kleine Schwankungen wie große Fortschritte aussehen ließe.
+
+**Status:** mehrere Analytics-Metriken implementiert, Verlauf über die Zeit implementiert. Vollständige PWA-UX-Parität im Endaudit prüfen.
 
 ## 20. Gamification
 
@@ -641,6 +656,8 @@ Externe Browserbibliotheken können beim ersten Abruf Internet benötigen und we
 
 IndexedDB `lernapp-pwa`, aktuell DB-Version 2.
 
+Die DB-Version ist in allen Modulen einzeln festgeschrieben, und nur `app.js` legt fehlende Stores an. Eine Versionserhöhung müsste deshalb in allen Modulen gleichzeitig erfolgen, sonst scheitert jedes Modul, das die Datenbank noch mit der alten Version öffnet. Neue Persistenz wird daher bevorzugt als eigener Datensatz in einem bestehenden Store eingeführt, solange die fachliche Semantik erhalten bleibt. Der Fortschrittsverlauf nutzt dieses Verfahren und liegt als Datensatz `mastery-history` im Store `settings`.
+
 Stores umfassen:
 
 - modules
@@ -769,6 +786,8 @@ Nach größeren Projektphasen: Master Spec aktualisieren, Changelog ergänzen, S
 | Tutor „Prüf mich“ | OFFEN/SHOULD |
 | Speech | IMPLEMENTIERT als Progressive Enhancement, Gerätetest offen |
 | Analytics | IMPLEMENTIERT, Vollständigkeitsaudit offen |
+| Fortschrittsverlauf über die Zeit | IMPLEMENTIERT |
+| Zusammenfassung umfangreicher Dokumente | IMPLEMENTIERT |
 | Streak | IMPLEMENTIERT |
 | erweiterte Gamification | OPTIONAL/OFFEN |
 | JSON Backup/Restore | IMPLEMENTIERT |
@@ -805,21 +824,30 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 19. LOCAL/AUTO/CLOUD-Modi testen.
 20. CLOUD nach Proxy-Deployment für alle fünf AIService-Aufgaben testen.
 
-## 36. Offene Prioritäten ab Version 3.19
+## 36. Offene Prioritäten ab Version 3.20
 
 1. Cloudflare Worker tatsächlich deployen, `GEMINI_API_KEY`/`GEMINI_MODEL`/Origin setzen.
 2. Cloud-Verbindung auf echtem iPhone testen.
 3. Alle sechs CLOUD-AIService-Funktionen E2E testen, insbesondere `analyzeImage` mit einer echten handschriftlichen Mitschrift.
-4. Zusammenfassungen für umfangreiche Dokumente abschnittsweise erzeugen. Derzeit wird der Quelltext bei 60.000 Zeichen abgeschnitten, ein vollständiges Skript passt nicht in einen Aufruf.
-5. Tutor „Prüf mich“ an die Evidence-Pipeline anbinden.
-6. AI-Kosten-/Nutzungslimit und Nutzungsprotokoll ergänzen.
-7. MasterySnapshot einführen, damit der Fortschritt einen Verlauf über die Zeit zeigen kann.
+4. Tutor „Prüf mich“ an die Evidence-Pipeline anbinden.
+5. AI-Kosten-/Nutzungslimit und Nutzungsprotokoll ergänzen.
+6. Highlights inhaltlich gegen reale Studienunterlagen prüfen.
+7. Erweiterte Gamification bewerten, soweit sie das Lernen stützt.
 8. vollständigen iPhone/iPad-Abnahmetest durchführen.
 9. danach Release Candidate der persönlichen PWA erstellen.
 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.20
+
+- Zusammenfassungen werden abschnittsweise erzeugt und verdichtet, statt den Quelltext bei 60.000 Zeichen abzuschneiden
+- Zahl der zusammengefuehrten Abschnitte wird angezeigt, ausgelassene Abschnitte werden ausdruecklich benannt
+- Fortschrittsverlauf ergaenzt: ein Messpunkt pro Modul und Lerntag mit Mastery, Coverage und Readiness
+- Verlauf zeigt Veraenderung in Prozentpunkten und Sparklines auf fester Skala
+- Verlauf liegt als Datensatz im settings-Store, um eine risikobehaftete Versionserhoehung ueber alle Module zu vermeiden
+- Hinweis zur Migrationsfalle der modulweise festgeschriebenen DB-Version im Datenmodell ergaenzt
 
 ## Changelog 3.19
 

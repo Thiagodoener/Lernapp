@@ -662,6 +662,53 @@ async function examReadiness(exam) {
   return {exam, goalCount:goals.length, content, assessment, mastery:masteryRatio, stability, score};
 }
 
+// Ein neuer Object Store würde eine Versionserhöhung erfordern, die in allen
+// Modulen gleichzeitig erfolgen müsste; ein einzelner Datensatz im settings-Store
+// erreicht dasselbe ohne Migrationsrisiko. Spec Kap. 5 lässt vereinfachte lokale
+// Repräsentationen ausdrücklich zu.
+const SNAPSHOT_RECORD_ID = "mastery-history";
+const SNAPSHOT_KEEP_DAYS = 180;
+
+async function recordProgressSnapshot(moduleId, values) {
+  const record = (await get("settings", SNAPSHOT_RECORD_ID)) || {id:SNAPSHOT_RECORD_ID, entries:[]};
+  const key = `${moduleId}:${dayKey()}`;
+  // Innerhalb eines Tages gewinnt der jeweils neueste Stand.
+  const entries = (record.entries||[]).filter(e => e.key !== key);
+  entries.push({key, moduleId, date:dayKey(), ...values});
+  entries.sort((a,b) => a.date.localeCompare(b.date));
+  record.entries = entries.slice(-SNAPSHOT_KEEP_DAYS);
+  await put("settings", record);
+  return record.entries.filter(e => e.moduleId === moduleId);
+}
+
+// Feste Skala von 0 bis 100 %: eine automatische Skalierung würde kleine
+// Schwankungen wie große Fortschritte aussehen lassen.
+function sparkline(values) {
+  if (values.length < 2) return "";
+  const width=100, height=28;
+  const points=values.map((v,i) => {
+    const x=(i/(values.length-1))*width;
+    const y=height-Math.max(0,Math.min(1,v))*height;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  return `<svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${points}"/></svg>`;
+}
+
+function trendRow(label, snapshots, field) {
+  const series=snapshots.map(s => s[field]).filter(v => typeof v === "number");
+  if (!series.length) return "";
+  const current=series[series.length-1];
+  const delta=Math.round((current-series[0])*100);
+  const note=series.length<2
+    ? "Verlauf wird ab dem nächsten Lerntag sichtbar"
+    : `${delta>0?"+":""}${delta} Prozentpunkte seit ${snapshots[0].date}`;
+  return `<div class="list-item">
+    <div class="row between"><span>${label}</span><strong>${Math.round(current*100)}%</strong></div>
+    <div class="small muted">${esc(note)}</div>
+    ${sparkline(series)}
+  </div>`;
+}
+
 async function generatePlan() {
   const module=await activeModule();
   const settings=await ensureSettings();
@@ -1247,6 +1294,15 @@ async function renderProgress() {
     averages[d]=v.length?v.reduce((a,b)=>a+b,0)/v.length:0;
   }
   const mastered=ms.filter(x=>x.status==="MASTERED").length;
+  const overallMastery=goals.length
+    ? goals.reduce((sum,g)=>sum+masteryValue(ms.find(m=>m.goalId===g.id)),0)/goals.length
+    : 0;
+  const history=await recordProgressSnapshot(module.id,{
+    mastery:overallMastery,
+    contentCoverage:moduleContent.ratio,
+    assessmentCoverage:moduleAssessment.ratio,
+    readiness:readiness?readiness.score:null
+  });
   content.innerHTML=`
     <div class="grid">
       <section class="card metric"><span class="muted small">Beherrscht</span><strong>${mastered}</strong><span class="small">von ${goals.length} Lernzielen</span></section>
@@ -1277,6 +1333,14 @@ async function renderProgress() {
     </section>
     <section class="card"><h2>Wissensdimensionen</h2>
       ${dims.map(d=>`<div class="list-item"><div class="row between"><span>${dimLabels[d]}</span><strong>${Math.round(averages[d]*100)}%</strong></div><div class="progress-track"><div class="progress-fill" style="width:${averages[d]*100}%"></div></div></div>`).join("")}
+    </section>
+    <section class="card">
+      <h2>Verlauf</h2>
+      ${trendRow("Mastery",history,"mastery")}
+      ${trendRow("Inhaltsabdeckung",history,"contentCoverage")}
+      ${trendRow("Geprüfte Lernziele",history,"assessmentCoverage")}
+      ${trendRow("Prüfungsbereitschaft",history,"readiness")}
+      <p class="small muted">Ein Messpunkt pro Lerntag, an dem du den Fortschritt geöffnet hast.</p>
     </section>
     <section class="card"><h2>Lernserie</h2><div class="row between"><span>Aktuell</span><strong>${s.current} Tage</strong></div><div class="row between"><span>Bestwert</span><strong>${s.longest} Tage</strong></div></section>
     <section class="card">
