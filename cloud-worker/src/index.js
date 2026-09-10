@@ -18,6 +18,9 @@ function clamp(v){return Math.max(0,Math.min(1,Number(v)||0));}
 function clean(value,max=60000){return String(value||"").replace(/\u0000/g,"").slice(0,max);}
 
 const IMAGE_MIME=new Set(["image/jpeg","image/png","image/webp","image/heic","image/heif"]);
+// Gedrosselt oder kurzzeitig überlastet: die PWA darf das wiederholen, statt den
+// laufenden Import abzubrechen. Andere Fehler bleiben endgültig.
+const RETRYABLE_STATUS=new Set([429,503]);
 
 function outputText(body){
   const parts=body?.candidates?.[0]?.content?.parts||[];
@@ -69,8 +72,15 @@ async function callGemini(task,payload,env){
       generationConfig:{temperature:0.2,maxOutputTokens:8192,responseMimeType:"application/json",responseSchema:schema}
     })
   });
-  const body=await response.json();
-  if(!response.ok)throw new Error(body?.error?.message||`Gemini Fehler (${response.status})`);
+  const body=await response.json().catch(()=>null);
+  if(!response.ok){
+    const failure=new Error(body?.error?.message||`Gemini Fehler (${response.status})`);
+    if(RETRYABLE_STATUS.has(response.status)){
+      failure.status=response.status;
+      failure.retryAfter=response.headers.get("Retry-After");
+    }
+    throw failure;
+  }
   const blockReason=body?.promptFeedback?.blockReason;
   if(blockReason)throw new Error(`Die Anfrage wurde vom Modell blockiert (${blockReason}).`);
   const finishReason=body?.candidates?.[0]?.finishReason;
@@ -101,6 +111,10 @@ export default {
       if(task==="evaluateFreeAnswer")result.score=clamp(result.score);
       if("confidence" in result)result.confidence=clamp(result.confidence);
       return json(result,200,origin,env);
-    }catch(error){return json({error:String(error?.message||error)},502,origin,env);}
+    }catch(error){
+      const headers=cors(origin,env);
+      if(error?.retryAfter)headers["Retry-After"]=error.retryAfter;
+      return new Response(JSON.stringify({error:String(error?.message||error)}),{status:error?.status||502,headers});
+    }
   }
 };

@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.17 — 10.09.2026
+## Version 3.19 — 10.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -322,7 +322,11 @@ Ein `LEARN_NEW`-Task gilt nicht allein durch Lesen als fachlich beherrscht; Asse
 
 Der Plan wird nach neuer relevanter Evidence, Importen und Prüfungsergebnissen neu bewertet.
 
-**Status:** lokale und Cloud-/Backend-Planungslogik vorhanden; systematische reale Langzeitprüfung steht aus.
+### Prüfungsgewichtung
+
+Steht ein Termin bevor, verschiebt der Plan sich auf den Prüfungsstoff. Die Verschiebung wächst linear über einen Horizont von 30 Tagen: 30 Tage vorher wirkt sie nicht, am Prüfungstag voll. Innerhalb des Scopes werden Lernziele bevorzugt, ungeprüfte Lernziele zusätzlich, weil dort jede Evidence fehlt. Lernziele außerhalb des Scopes werden zurückgestellt, aber nicht entfernt. Ohne Termin bleibt die Reihenfolge unverändert.
+
+**Status:** implementiert, inklusive Kopplung an Prüfungstermin, Scope und fehlende Assessment Coverage. Systematische reale Langzeitprüfung steht aus.
 
 ## 13. Coverage – nichts vergessen
 
@@ -337,13 +341,22 @@ Coverage soll mindestens unterscheiden:
 
 Das Ziel ist nicht künstlich 100 %, sondern das frühzeitige Erkennen von blinden Flecken.
 
-**Status:** Als Architekturkonzept festgelegt. In der PWA nicht implementiert: es existiert keine Coverage-Berechnung im Code. Diese Lücke ist die Hauptursache dafür, dass der Lernplan derzeit nicht erkennen kann, welcher importierte Stoff noch gar nicht abgedeckt ist.
+### Berechnung
+
+- **Content Coverage** = Anteil der lernrelevanten Quellseiten, aus denen mindestens ein Lernziel entstanden ist. Seiten, die der Import als nicht lernrelevant eingestuft hat, zählen weder im Zähler noch im Nenner und erscheinen daher nicht als Lücke.
+- **Assessment Coverage** = Anteil der Lernziele mit mindestens einer Evidence.
+
+Importe von vor der Relevanzkennzeichnung gelten als relevant. Coverage fällt dadurch eher zu niedrig als zu hoch aus, was dem Zweck entspricht: blinde Flecken finden statt eine hohe Zahl anzeigen.
+
+**Status:** implementiert. Beide Werte werden im Fortschritt für das Modul und innerhalb der Prüfungsbereitschaft für den jeweiligen Prüfungsstoff ausgewiesen.
 
 ## 14. Prüfungen und Exam Scope
 
 Nutzer kann Prüfungen mit Datum anlegen. Ein Exam besitzt einen relevanten Scope. Der Lernplan priorisiert Inhalte abhängig von Prüfungstermin, Scope, Mastery, Stabilität und Coverage.
 
-**Status:** Exam-Modelle und Prüfungssimulation vorhanden; UX/Scope-Parität der PWA ist im Endaudit zu prüfen.
+Ein Exam besitzt Titel, Termin und einen Scope aus ausgewählten Materialien. Ohne Auswahl umfasst der Scope das gesamte Modul. Prüfungen mit Termin sind von den Datensätzen der Prüfungssimulation dadurch unterscheidbar, dass letztere keinen Termin tragen.
+
+**Status:** implementiert. Prüfungen lassen sich im Fortschritt mit Termin und Scope anlegen und entfernen.
 
 ## 15. Exam Readiness
 
@@ -356,7 +369,9 @@ Die App soll eine nachvollziehbare Prüfungsbereitschaft anzeigen. V1-Gewichtung
 
 Readiness ist eine Lernsteuerungsmetrik und **keine Bestehensgarantie**.
 
-**Status:** Als Architekturkonzept festgelegt. In der PWA nicht implementiert: es existiert keine Readiness-Berechnung im Code.
+Die Stabilität wird aus den FSRS-Intervallen der Karteikarten abgeleitet: eine Karte gilt als verankert, wenn ihr Intervall 30 Tage erreicht. Die vier Anteile werden mit ihren Gewichten einzeln ausgewiesen, damit nachvollziehbar bleibt, woran es liegt.
+
+**Status:** implementiert, inklusive Anzeige im Fortschritt und als Kennzahl auf dem Heute-Bildschirm.
 
 ## 16. Prüfungssimulation
 
@@ -579,7 +594,9 @@ Unterstützte Tasks:
 
 ### Kontingent und Kosten
 
-Textaufgaben sind im kostenlosen Kontingent für den Einzelbetrieb in der Regel ausreichend abgedeckt. `analyzeImage` verbraucht pro Bild deutlich mehr Kontingent als eine Textanfrage. Werden Minuten- oder Tagesgrenzen erreicht, bleibt LOCAL der kostenfreie Fallback. Videoanalyse ist bewusst nicht Teil dieser Version, weil sie mit kostenfreiem Betrieb nicht verlässlich vereinbar ist.
+Textaufgaben sind im kostenlosen Kontingent für den Einzelbetrieb in der Regel ausreichend abgedeckt. `analyzeImage` verbraucht pro Bild deutlich mehr Kontingent als eine Textanfrage. Werden Minuten- oder Tagesgrenzen erreicht, bleibt LOCAL der kostenfreie Fallback.
+
+Gedrosselte Anfragen dürfen einen laufenden Import nicht abbrechen. Der Proxy reicht die Statuscodes 429 und 503 samt `Retry-After` an die PWA durch, statt sie als endgültigen Fehler zu verpacken. Die PWA wiederholt solche Anfragen bis zu viermal mit wachsendem Abstand und meldet die Wartezeit sichtbar, damit die Pause nicht wie ein hängender Import wirkt. Alle übrigen Fehler bleiben endgültig und werden nicht wiederholt. Videoanalyse ist bewusst nicht Teil dieser Version, weil sie mit kostenfreiem Betrieb nicht verlässlich vereinbar ist.
 
 ## 27. UI/UX-Anforderungen
 
@@ -742,9 +759,11 @@ Nach größeren Projektphasen: Master Spec aktualisieren, Changelog ergänzen, S
 | Mastery 4 Dimensionen | IMPLEMENTIERT |
 | Knowledge Gaps | IMPLEMENTIERT |
 | adaptiver Tagesplan | IMPLEMENTIERT |
-| Coverage | IN DER PWA NICHT IMPLEMENTIERT |
-| Exam / Exam Scope | Exam-Modelle vorhanden, Scope in der PWA nicht implementiert |
-| Exam Readiness | IN DER PWA NICHT IMPLEMENTIERT |
+| Coverage | IMPLEMENTIERT |
+| Exam / Exam Scope | IMPLEMENTIERT |
+| Exam Readiness | IMPLEMENTIERT |
+| Prüfungstermin steuert den Lernplan | IMPLEMENTIERT |
+| Wiederholung bei Kontingent-Drosselung | IMPLEMENTIERT |
 | Prüfungssimulation | IMPLEMENTIERT |
 | Tutor | IMPLEMENTIERT |
 | Tutor „Prüf mich“ | OFFEN/SHOULD |
@@ -786,21 +805,39 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 19. LOCAL/AUTO/CLOUD-Modi testen.
 20. CLOUD nach Proxy-Deployment für alle fünf AIService-Aufgaben testen.
 
-## 36. Offene Prioritäten ab Version 3.16
+## 36. Offene Prioritäten ab Version 3.19
 
 1. Cloudflare Worker tatsächlich deployen, `GEMINI_API_KEY`/`GEMINI_MODEL`/Origin setzen.
 2. Cloud-Verbindung auf echtem iPhone testen.
 3. Alle sechs CLOUD-AIService-Funktionen E2E testen, insbesondere `analyzeImage` mit einer echten handschriftlichen Mitschrift.
-4. PWA Coverage, Exam Scope und Exam Readiness gegen diese Spezifikation auditieren und fehlende Parität schließen.
+4. Zusammenfassungen für umfangreiche Dokumente abschnittsweise erzeugen. Derzeit wird der Quelltext bei 60.000 Zeichen abgeschnitten, ein vollständiges Skript passt nicht in einen Aufruf.
 5. Tutor „Prüf mich“ an die Evidence-Pipeline anbinden.
 6. AI-Kosten-/Nutzungslimit und Nutzungsprotokoll ergänzen.
-7. Analytics-/Gamification-Vollständigkeit prüfen.
+7. MasterySnapshot einführen, damit der Fortschritt einen Verlauf über die Zeit zeigen kann.
 8. vollständigen iPhone/iPad-Abnahmetest durchführen.
 9. danach Release Candidate der persönlichen PWA erstellen.
 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.19
+
+- Content Coverage und Assessment Coverage berechnet und im Fortschritt ausgewiesen
+- Seiten-Relevanz wird beim Import mitgespeichert, damit Verzeichnisse nicht als Abdeckungsluecke erscheinen
+- Pruefungen mit Titel, Termin und Scope aus ausgewaehlten Materialien anlegbar und entfernbar
+- Exam Readiness nach der Spec-Gewichtung 25/20/40/15 berechnet, die vier Anteile werden einzeln ausgewiesen
+- Stabilitaet aus den FSRS-Intervallen abgeleitet
+- Lernplan gewichtet Pruefungsstoff nach Naehe zum Termin und bevorzugt ungeprueften Stoff im Scope
+- Heute-Bildschirm zeigt Pruefungsbereitschaft und Countdown
+- Statusangaben zu Coverage, Exam Scope und Exam Readiness von "nicht implementiert" auf implementiert korrigiert
+
+## Changelog 3.18
+
+- Drosselung durch das kostenlose Kontingent bricht laufende Importe nicht mehr ab
+- Proxy reicht 429 und 503 samt `Retry-After` durch, statt sie als 502 zu verpacken
+- PWA wiederholt gedrosselte Anfragen bis zu viermal mit wachsendem Abstand
+- Wartezeit wird waehrend des Imports sichtbar gemeldet
 
 ## Changelog 3.17
 

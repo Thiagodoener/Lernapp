@@ -120,6 +120,16 @@ const localProvider={
   }
 };
 
+const CLOUD_RETRY_STATUS=new Set([429,503]);
+const CLOUD_MAX_ATTEMPTS=4;
+const CLOUD_BASE_DELAY_MS=2000;
+
+function cloudRetryDelay(attempt,retryAfter){
+  const seconds=Number(retryAfter);
+  if(Number.isFinite(seconds)&&seconds>0)return Math.min(seconds*1000,60000);
+  return CLOUD_BASE_DELAY_MS*2**(attempt-1);
+}
+
 async function cloudConfig(){
   const settings=await readAppSettings();
   return {
@@ -137,11 +147,19 @@ const cloudProvider={
     if(!navigator.onLine)throw new Error("Cloud-KI ist offline nicht verfügbar.");
     const headers={"Content-Type":"application/json"};
     if(cfg.accessToken)headers["X-Lernapp-Key"]=cfg.accessToken;
-    const response=await fetch(cfg.endpoint,{method:"POST",headers,body:JSON.stringify({task,payload})});
-    let body=null;
-    try{body=await response.json();}catch{}
-    if(!response.ok)throw new Error(body?.error||`Cloud-KI Fehler (${response.status})`);
-    return body;
+    const request=JSON.stringify({task,payload});
+    // Das kostenlose Kontingent drosselt nach wenigen Anfragen pro Minute. Ohne
+    // Wiederholung würde ein umfangreicher Import mittendrin komplett scheitern.
+    for(let attempt=1;;attempt++){
+      const response=await fetch(cfg.endpoint,{method:"POST",headers,body:request});
+      let body=null;
+      try{body=await response.json();}catch{}
+      if(response.ok)return body;
+      if(!CLOUD_RETRY_STATUS.has(response.status)||attempt>=CLOUD_MAX_ATTEMPTS)throw new Error(body?.error||`Cloud-KI Fehler (${response.status})`);
+      const delay=cloudRetryDelay(attempt,response.headers.get("Retry-After"));
+      window.dispatchEvent(new CustomEvent("lernapp:cloud-throttled",{detail:{delayMs:delay,attempt,task}}));
+      await new Promise(resolve=>setTimeout(resolve,delay));
+    }
   },
   summarize(payload){return this.call("summarize",payload);},
   tutor(payload){return this.call("tutor",payload);},
