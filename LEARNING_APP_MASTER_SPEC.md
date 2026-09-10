@@ -1,185 +1,785 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.14 — 10.09.2026
+## Version 3.15 — 10.09.2026
 
-### Leitprinzip
+> **Single Source of Truth für das gesamte Projekt Lernapp.**  
+> Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
 
-Die Lernapp bleibt offline-first. Deterministische Kernfunktionen dürfen nicht von einer kostenpflichtigen KI-API abhängen. KI wird für semantische Aufgaben eingesetzt, wenn sie einen echten Qualitätsvorteil bietet.
+## 1. Produktvision
 
-## Materiallöschung
+Die Lernapp ist eine persönliche, wissenschaftlich orientierte Lernplattform für Studium und Weiterbildung. Sie soll nicht nur Inhalte anzeigen oder Fragen generieren, sondern ein belastbares Modell darüber aufbauen, **welche Inhalte gelernt werden müssen, was der Nutzer tatsächlich beherrscht, wo Wissenslücken bestehen und was als Nächstes gelernt werden sollte**.
 
-**Status: FIX**
+Der Kernzyklus lautet:
 
-Ein importiertes Lernmaterial kann vollständig gelöscht werden. Beim Löschen eines `Document` werden die ausschließlich daraus abgeleiteten Lernziele, Karteikarten, Reviews, Evidenzen, Mastery-Zustände und Wissenslücken bereinigt. Andere Materialien und deren Fortschritt bleiben erhalten.
+**Studienmaterial → strukturierte Wissensbasis → adaptiver Lernplan → Lernaktivität → Prüfung/Assessment → Evidence → Mastery/Wissenslücken → aktualisierter Lernplan → Prüfungsbereitschaft**
 
-## KI-Betriebsmodi
+Die zentrale Differenzierung gegenüber einem einfachen KI-Chat oder Karteikartenprogramm lautet:
 
-**Status: IMPLEMENTIERT**
+> Die App soll nicht nur wissen, was gelesen oder bearbeitet wurde, sondern anhand von Lern-Evidence abschätzen, was tatsächlich beherrscht wird.
+
+## 2. Primäre Produktziele
+
+### MUST
+
+1. Studienmaterial zuverlässig aufnehmen und strukturiert verarbeiten.
+2. Relevanten Lernstoff vollständig erfassen, damit nichts Wesentliches vergessen wird.
+3. Inhalte zusammenfassen und wichtige Stellen hervorheben.
+4. Lernziele aus den Materialien ableiten und mit Quellen verknüpfen.
+5. Karteikarten mit Spaced Repetition bereitstellen.
+6. Quizfragen und offene Fragen bereitstellen.
+7. Freie Erklärungen des Nutzers bewerten.
+8. Wissen nicht binär, sondern differenziert nach mehreren Dimensionen bewerten.
+9. Wissenslücken automatisch erkennen.
+10. Einen adaptiven Tages- und Prüfungslernplan erzeugen.
+11. Fortschritt und Prüfungsbereitschaft verständlich darstellen.
+12. Wiederholungen mit FSRS steuern.
+13. Prüfungssimulationen durchführen.
+14. Einen quellengebundenen Tutor anbieten.
+15. Offline-/kostenfreien persönlichen Betrieb ermöglichen.
+16. Optional hochwertige Cloud-KI nutzen können, ohne API-Schlüssel in der PWA offenzulegen.
+17. Daten lokal sichern, exportieren und wiederherstellen können.
+18. Auf iPhone und iPad intuitiv als installierbare PWA nutzbar sein.
+
+### SHOULD
+
+- adaptive Schwierigkeit der Lernaktivitäten
+- Streaks und zurückhaltende Gamification
+- detaillierte Lernstatistiken und Trends
+- Lernzeit-/Workload-Steuerung
+- automatische Priorisierung vor Prüfungsterminen
+- transparente Quellenanzeige bei generierten Lerninhalten
+- AI-Nutzungs-/Kostenmetriken
+
+### OPTIONAL / SPÄTER
+
+- Knowledge Map als visuelle Darstellung von Konzepten und Beziehungen
+- weitergehende Gamification wie XP/Levels, sofern sie das Lernen unterstützt und nicht vom Kernziel ablenkt
+- zusätzliche Cloud-/Provider-Optionen
+
+## 3. Leitprinzipien
+
+### 3.1 Learning first
+
+Die Hauptinteraktion lautet:
+
+**App öffnen → heutigen Plan sehen → lernen.**
+
+Der Chat/Tutor ist ein Werkzeug und nicht der Startbildschirm.
+
+### 3.2 Evidence first
+
+Der Wissensstand darf nicht daraus abgeleitet werden, dass ein Inhalt geöffnet, gelesen oder von einer KI zusammengefasst wurde.
+
+Verbindliche Kette:
+
+**Quelle → atomare Wissenseinheit → Konzept → Lernziel → Lernaktivität → Lernversuch → Evidence → Mastery → Wissenslücke → Lernplan**
+
+### 3.3 Deterministische Kernlogik
+
+KI interpretiert semantische Inhalte. Deterministische Software verwaltet insbesondere:
+
+- Datenhaltung
+- Prüfungstermine
+- FSRS
+- Lernplanregeln
+- Coverage
+- Mastery-Aggregation
+- Statusübergänge
+- Audits
+- Statistiken
+- Kosten-/Nutzungslimits
+
+Eine KI darf Mastery niemals direkt setzen.
+
+### 3.4 Quellenbindung
+
+Generierte Lernziele, Zusammenfassungen, Highlights, Tutorantworten, Fragen und Bewertungen sollen soweit möglich auf konkrete Quellen zurückführbar sein. Wenn Material eine Aussage nicht trägt, darf die App dies nicht durch erfundene Inhalte kaschieren.
+
+### 3.5 Kostenprinzip
+
+Die Kernapp muss ohne verpflichtende laufende Kosten nutzbar bleiben. Cloud-KI ist optional.
+
+## 4. Unterstützte Lernmaterialien
+
+Zielumfang:
+
+- PDF-Skripte
+- Vorlesungsfolien als PDF
+- Artikel/Paper
+- Buch-/Kapitelmaterial, soweit als unterstützte Datei importiert
+- TXT
+- Markdown
+- textbasierte PDFs
+- gescannte PDFs über OCR
+- Text in Bildern/gescannten Seiten über OCR-Pipeline
+
+### Importregeln
+
+- Quelldokument bleibt als eigenständige Entität erhalten.
+- Seiten-/Quellenbezug soll erhalten bleiben.
+- Scan-Seiten verwenden OCR-Fallback.
+- Verarbeitung darf keine halbfertigen abhängigen Daten zurücklassen.
+- Importiertes Material muss wieder vollständig löschbar sein.
+
+**PWA-Status:** PDF/TXT/Markdown, PDF.js-Textextraktion und Tesseract-OCR-Fallback implementiert. Vollständige reale Gerätetests aller Materialtypen stehen aus.
+
+## 5. Wissensmodell
+
+Zentrale fachliche Entitäten:
+
+- Module
+- Document
+- SourceBlock / Seiten-/Quellabschnitt
+- KnowledgeUnit
+- Concept
+- ConceptRelationship
+- LearningGoal
+- LearningGoalSource
+- LearningGoalPrerequisite / Requirements
+- Flashcard
+- Question
+- AssessmentAttempt
+- AssessmentEvidence
+- MasteryState
+- MasterySnapshot
+- KnowledgeGap
+- ReviewState
+- ReviewLog
+- Exam
+- ExamScope
+- StudyPlan
+- StudyPlanTask
+- TutorSession / TutorMessage
+- ExamSimulation / ExamSimulationItem
+- Processing/Audit-Metadaten
+
+Die PWA kann aus technischen Gründen vereinfachte lokale Repräsentationen verwenden; die fachliche Semantik muss erhalten bleiben.
+
+## 6. Wissensdimensionen und Mastery
+
+Jedes Lernziel soll nicht nur mit einem Gesamtwert betrachtet werden, sondern in vier Dimensionen:
+
+1. **RECALL** – Fakten/Inhalte abrufen
+2. **UNDERSTANDING** – Zusammenhänge erklären
+3. **APPLICATION** – Wissen anwenden
+4. **TRANSFER** – Wissen auf neue Situationen übertragen
+
+Mastery-Status:
+
+- NOT_ASSESSED
+- WEAK
+- DEVELOPING
+- PROFICIENT
+- MASTERED
+
+Stabilität:
+
+- UNKNOWN
+- UNSTABLE
+- STABLE
+- DECAYING
+
+Grundregel: `MASTERED` darf nur bei ausreichender Evidence und ausreichender Confidence entstehen. Niedrig-konfidente lokale Heuristiken dürfen allein kein MASTERED erzeugen.
+
+## 7. Zusammenfassungen und Highlights
+
+### Anforderungen
+
+- Kurz
+- Standard
+- Ausführlich
+- wissenschaftlich/seriös formuliert
+- wichtige Inhalte priorisieren
+- Quellen-/Seitenbezug erhalten
+- Highlights direkt mit Quelle verbinden
+- Zusammenfassungen erzeugen keine Mastery-Evidence
+
+**Status:** Zusammenfassungen über `AIService.summarize()` implementiert. Highlights grundsätzlich vorhanden. Weitere Qualitätsprüfung mit realen Studienunterlagen erforderlich.
+
+## 8. Lernziele
+
+Aus Material werden konkrete, lernbare Ziele erzeugt. Lernziele müssen:
+
+- verständlich formuliert sein
+- relevante Quelle besitzen
+- nach Möglichkeit Voraussetzungen/Beziehungen berücksichtigen
+- für Assessment und Planung verwendbar sein
+- Coverage ermöglichen
+
+**Status:** automatische Generierung über `AIService.generateLearningGoals()` implementiert; lokale Baseline und Cloud-Schnittstelle vorhanden.
+
+## 9. Karteikarten und FSRS
+
+### Anforderungen
+
+- automatisch erzeugte Karten
+- manuell erstellbare Karten
+- Quelle/Lernziel-Zuordnung
+- Again / Hard / Good / Easy
+- FSRS bestimmt den Wiederholungszeitpunkt
+- Antwort anzeigen und Selbstbewertung dürfen nicht fälschlich als unabhängiger Recall gewertet werden
+
+**Status:** PWA verwendet `ts-fsrs` 5.4.1 mit expliziten 21 FSRS-6-Parametern. Native Implementierung verwendet FSRS-6-kompatible Swift-Abhängigkeit. Manuelle Karten sind vorgesehen/implementiert.
+
+## 10. Fragen, Selbsttests und freie Antworten
+
+Unterstützte Lernaktivitäten:
+
+- Quiz/Multiple Choice
+- offene Fragen
+- freie Erklärungen
+- Verständnis
+- Anwendung
+- Transfer
+- optional Spracheingabe als Progressive Enhancement
+
+Freie Antworten laufen über `AIService.evaluateFreeAnswer()`.
+
+### Evidence-Regeln
+
+Evidence enthält mindestens:
+
+- Lernziel
+- Dimension
+- Score
+- Confidence
+- Provider
+- Bewertungs-Policy
+- Feedback
+- Zeit/Quelle
+- Independent-Recall-Information
+
+**Status:** gemeinsame AIService-Pipeline für Selbsttests und Prüfungssimulation implementiert. LOCAL verwendet konservative Heuristik; hochwertige semantische CLOUD-Bewertung ist vorbereitet, aber noch nicht live end-to-end getestet.
+
+## 11. Wissenslücken
+
+Die App soll Schwächen automatisch erkennen und nicht darauf warten, dass der Nutzer sie manuell markiert.
+
+Lokale Gap-Typen umfassen:
+
+- CRITICAL_NOT_ASSESSED
+- RECALL_FAILURE
+- UNDERSTANDING_FAILURE
+- APPLICATION_FAILURE
+- TRANSFER_FAILURE
+- HIGH_UNCERTAINTY
+
+Wissenslücken fließen automatisch zurück in den Lernplan.
+
+**Status:** implementiert.
+
+## 12. Adaptiver Lernplan
+
+Der Lernplan ist Kernfunktion, nicht Zusatzfunktion.
+
+Er berücksichtigt mindestens:
+
+- noch nicht geprüfte Lernziele
+- schwache Lernziele
+- Knowledge Gaps
+- fällige FSRS-Wiederholungen
+- neue Inhalte
+- Prüfungsrelevanz
+- Prüfungstermin
+- verfügbare tägliche Lernzeit
+- Coverage
+- bisherigen Wissensstand
+
+Task-Arten umfassen mindestens:
+
+- LEARN_NEW
+- REVIEW_FLASHCARD
+- REPAIR_KNOWLEDGE_GAP
+- Assessment-/Prüfaktivitäten
+
+Ein `LEARN_NEW`-Task gilt nicht allein durch Lesen als fachlich beherrscht; Assessment muss Evidence liefern.
+
+Der Plan wird nach neuer relevanter Evidence, Importen und Prüfungsergebnissen neu bewertet.
+
+**Status:** lokale und Cloud-/Backend-Planungslogik vorhanden; systematische reale Langzeitprüfung steht aus.
+
+## 13. Coverage – nichts vergessen
+
+Die App muss transparent prüfen, ob der importierte relevante Lernstoff durch Wissenseinheiten/Lernziele und Assessments abgedeckt wird.
+
+Coverage soll mindestens unterscheiden:
+
+- Content Coverage
+- Assessment Coverage
+- noch nicht abgedeckte Inhalte
+- noch nicht geprüfte Lernziele
+
+Das Ziel ist nicht künstlich 100 %, sondern das frühzeitige Erkennen von blinden Flecken.
+
+**Status:** Backend-/Architekturkonzept implementiert; PWA-Parität muss im Endaudit ausdrücklich geprüft werden.
+
+## 14. Prüfungen und Exam Scope
+
+Nutzer kann Prüfungen mit Datum anlegen. Ein Exam besitzt einen relevanten Scope. Der Lernplan priorisiert Inhalte abhängig von Prüfungstermin, Scope, Mastery, Stabilität und Coverage.
+
+**Status:** Exam-Modelle und Prüfungssimulation vorhanden; UX/Scope-Parität der PWA ist im Endaudit zu prüfen.
+
+## 15. Exam Readiness
+
+Die App soll eine nachvollziehbare Prüfungsbereitschaft anzeigen. V1-Gewichtung:
+
+- 25 % Content Coverage
+- 20 % Assessment Coverage
+- 40 % Mastery
+- 15 % Stability
+
+Readiness ist eine Lernsteuerungsmetrik und **keine Bestehensgarantie**.
+
+**Status:** Backend/native Logik vorhanden. Vollständige PWA-Darstellung/Parität im Endaudit prüfen.
+
+## 16. Prüfungssimulation
+
+### Anforderungen
+
+- realistische Mischung aus Wissensdimensionen
+- priorisierte relevante Lernziele
+- Timer
+- freie Antworten
+- unbeantwortete Fragen = 0
+- Ergebnisübersicht
+- schwache Lernziele erkennen
+- Evidence erzeugen
+- Mastery/Gaps/Plan aktualisieren
+- aktive Simulation fortsetzen können
+
+Aktuelle PWA-Baseline: 30 Minuten, bis zu 12 priorisierte Lernziele, RECALL/UNDERSTANDING/APPLICATION/TRANSFER.
+
+**Status:** implementiert und auf gemeinsame AIService-Bewertung umgestellt.
+
+## 17. Tutor
+
+Jedes Lernziel kann einen Tutorbereich besitzen.
+
+### Tutorregeln
+
+- Tutor läuft über `AIService.tutor()`.
+- Quellenkontext des Lernziels wird mitgegeben.
+- Quellseite/benachbarte Seiten können einbezogen werden.
+- Tutor soll Unsicherheit transparent machen.
+- Tutor-Verlauf wird lokal gespeichert.
+- Tutorantworten erzeugen keine Mastery-Evidence.
+- LOCAL bleibt kostenfrei und quellengebunden.
+- CLOUD kann später hochwertigere semantische Erklärungen liefern.
+
+**Status:** implementiert.
+
+### SHOULD
+
+„Prüf mich“ aus dem Tutor heraus soll eine echte Assessment-Aktivität starten, deren Ergebnis über die normale Evidence-Pipeline verarbeitet wird.
+
+## 18. Sprache / mündliches Erklären
+
+Die App soll freie Erklärungen per Text ermöglichen und Spracheingabe nutzen, wenn Browser/Gerät dies unterstützt.
+
+Regeln:
+
+- Spracheingabe ist Progressive Enhancement.
+- Texteingabe bleibt immer verfügbar.
+- Transkript muss vor Bewertung sichtbar/bearbeitbar sein, wo sinnvoll.
+- mündliche Erklärung wird wie andere freie Antworten über Evidence bewertet.
+
+**Status:** SpeechRecognition-Basis in PWA/native vorhanden; echter Geräte-Endtest ausstehend.
+
+## 19. Fortschritt und Analytics
+
+Die Fortschrittsansicht soll mindestens zeigen:
+
+- Mastery insgesamt
+- Mastery nach Dimension
+- schwache Lernziele
+- Knowledge Gaps
+- Anzahl/Qualität der Assessments
+- fällige Wiederholungen
+- Coverage
+- Prüfungssimulationen
+- Exam Readiness
+- Verlauf/Trend
+- Streak
+
+SHOULD:
+
+- Lernzeit
+- Antwortzeiten
+- Performance nach Fragetyp
+- Stabilität
+- Entwicklung über Zeit
+- Planerfüllung
+
+**Status:** mehrere Analytics-Metriken implementiert; vollständige PWA-UX-Parität im Endaudit prüfen.
+
+## 20. Gamification
+
+Gamification soll motivieren, aber wissenschaftliche Lernsteuerung nicht verzerren.
+
+MUST/SHOULD:
+
+- Streak
+- sichtbarer Fortschritt
+- klare Tageserfüllung
+
+OPTIONAL:
+
+- XP
+- Levels
+- Badges/Meilensteine
+
+Keine Belohnung darf dazu führen, dass bloßes Öffnen/Lesen als Mastery gewertet wird.
+
+## 21. Dashboard / Heute
+
+Der Heute-Bildschirm ist der operative Startpunkt.
+
+Er soll auf einen Blick beantworten:
+
+- Was soll ich heute lernen?
+- Was ist fällig?
+- Wo habe ich Schwächen?
+- Wie weit bin ich?
+- Wie bereit bin ich für die nächste Prüfung?
+
+Priorität ist geringe Reibung: möglichst wenige Schritte bis zur nächsten sinnvollen Lernaktivität.
+
+## 22. Bibliothek
+
+Bibliothek verwaltet Module und Materialien.
+
+Funktionen:
+
+- Module anlegen
+- Materialien importieren
+- Verarbeitungsstatus
+- Dokument öffnen
+- Zusammenfassungen
+- Highlights
+- Lernziele/Quellen
+- Material vollständig löschen
+
+Beim Löschen eines Materials werden ausschließlich abhängige Daten dieses Materials bereinigt; andere Materialien bleiben erhalten. Wiederherstellung ist nur über vorhandenes Backup möglich.
+
+**Status:** implementiert; Lösch-Cascade auf echtem iPhone noch explizit testen.
+
+## 23. Backup, Restore und Datenportabilität
+
+MUST:
+
+- JSON-Backup der lokalen Lerndaten
+- Restore
+- Daten bleiben ohne Cloudkonto nutzbar
+- keine künstliche Bindung an einen kostenpflichtigen Dienst
+
+Vor destruktiven Aktionen soll Backup empfohlen bzw. ermöglicht werden.
+
+**Status:** PWA JSON Backup/Restore implementiert.
+
+## 24. Betriebsmodi
 
 ### LOCAL
-- keine laufenden KI-API-Kosten
-- lokale Heuristiken/Fallbacks
-- Datenhaltung, FSRS, Planung, Fortschritt und Statuslogik bleiben lokal
 
-### AUTO
-- Standardmodus
-- nutzt lokale Verarbeitung als Vorfilter/Fallback
-- kann semantisch anspruchsvolle Aufgaben an CLOUD geben, sobald ein sicherer Cloud-Endpunkt konfiguriert ist
-- Ziel: hohe Qualität bei niedrigen laufenden Kosten
+- komplett kostenfreier Kernbetrieb
+- lokale Datenhaltung
+- lokale Heuristiken/OCR/FSRS/Planung
+- keine Cloud-KI erforderlich
+
+### AUTO — Standard
+
+- wählt automatisch die sinnvollste verfügbare Verarbeitung
+- LOCAL bleibt Fallback
+- CLOUD kann für semantisch anspruchsvolle Aufgaben eingesetzt werden
+- Ziel: bestmögliche Qualität bei kontrollierten Kosten
 
 ### CLOUD
-- für höchste semantische Qualität vorbereitet
-- nutzt ausschließlich einen sicheren Backend-/Proxy-Endpunkt
-- der eigentliche KI-API-Schlüssel bleibt serverseitig und wird niemals im Browser gespeichert
 
-## AIService
+- höchste semantische Qualität
+- ausschließlich über sicheren Proxy/Backend-Endpunkt
+- kein OpenAI/API-Schlüssel im Browser
 
-**Status: IMPLEMENTIERT**
+**Status:** Moduswahl und zentrale AIService-Schicht implementiert.
+
+## 25. AIService
 
 Zentrale Schnittstellen:
+
 - `summarize`
 - `tutor`
 - `generateLearningGoals`
 - `generateFlashcards`
 - `evaluateFreeAnswer`
 
-Cloud- und Local-Verarbeitung bleiben vollständig hinter dieser Schnittstelle gekapselt.
+Alle semantischen KI-Funktionen müssen über diese Abstraktion laufen, damit LOCAL/AUTO/CLOUD austauschbar bleiben.
 
-Zusätzlich implementiert:
-- persistierter Cloud-Endpoint in den lokalen App-Einstellungen
-- optionaler persönlicher Zugriffsschlüssel für den Proxy
-- `testCloud()`-Verbindungstest
-- transparente Cloud-Verfügbarkeitsanzeige
-- AUTO fällt bei fehlender Cloud-Verbindung weiterhin auf LOCAL zurück
+Implementiert sind außerdem:
 
-## Zusammenfassungen über AIService
+- persistierter Cloud-Endpoint
+- optionaler persönlicher Proxy-Zugriffsschlüssel
+- `testCloud()`
+- Cloud-Verfügbarkeitsstatus
+- AUTO-Fallback
 
-**Status: IMPLEMENTIERT**
+## 26. Sichere Cloud-Anbindung
 
-Dokument-Zusammenfassungen laufen über `AIService.summarize()` und unterstützen Kurz, Standard und Ausführlich. Ergebnisse werden lokal am Dokument mit Provider, Confidence, Länge, Erstellzeitpunkt und AI-Modus gespeichert.
+**Status: CODESEITIG IMPLEMENTIERT, LIVE-DEPLOYMENT AUSSTEHEND**
 
-## Lernziel- und Karteikartengenerierung über AIService
+Referenz: `cloud-worker/`.
 
-**Status: IMPLEMENTIERT**
+Regeln:
 
-Der Materialimport läuft über die AI-Import-Pipeline:
+- `OPENAI_API_KEY` nur als serverseitiges Secret
+- optional `LERNAPP_ACCESS_KEY`
+- CORS auf PWA-Origin begrenzbar
+- PWA darf keine beliebigen Modelle/Systemprompts bestimmen
+- Proxy akzeptiert nur freigegebene Lernapp-Tasks
+- `store:false`
+- Eingabe-/Textlimits
+- strukturierte JSON-Ausgaben
+- Healthcheck
 
-1. PDF/TXT/Markdown wird lokal extrahiert; Scan-PDF-Seiten nutzen OCR-Fallback.
-2. Lernziele werden über `AIService.generateLearningGoals()` erzeugt.
-3. Quellen-, Provider-, Modus- und Confidence-Provenienz bleibt erhalten.
-4. Karteikarten werden über `AIService.generateFlashcards()` erzeugt.
-5. Jede Karte erhält einen echten FSRS-Ausgangszustand.
-6. Mastery startet konservativ bei `NOT_ASSESSED`.
-7. Nach Import wird der Tagesplan invalidiert und aus dem neuen Wissensstand neu aufgebaut.
-8. Bei Fehlern werden bereits angelegte Importdaten wieder bereinigt.
+Unterstützte Tasks:
 
-## Freie Antwortbewertung über AIService
+- summarize
+- tutor
+- generateLearningGoals
+- generateFlashcards
+- evaluateFreeAnswer
+- health
 
-**Status: IMPLEMENTIERT FÜR SELBSTTESTS UND PRÜFUNGSSIMULATION**
+## 27. UI/UX-Anforderungen
 
-Selbsttests und freie Antworten in der Prüfungssimulation laufen über dieselbe zentrale `AIService.evaluateFreeAnswer()`-Pipeline.
+Zielgeräte: iPhone und iPad, primär PWA.
 
-Bewertungslogik:
-- `LOCAL`: vollständig lokale Baseline, kostenfrei.
-- `CLOUD`: semantische Bewertung über den konfigurierten sicheren Cloud-Endpunkt.
-- `AUTO`: lokale Vorbewertung/Fallback und optionale Cloud-Eskalation bei unsicheren Fällen, sobald CLOUD verfügbar ist.
+Navigation:
 
-Gemeinsame Evidence-Pipeline speichert Score, Confidence, Provider, Evaluations-Policy, Feedback, Wissensdimension, Quelle sowie bei Prüfungen Exam-/Session-/Item-Referenzen. Danach werden Mastery und Knowledge Gap deterministisch neu berechnet und der Tagesplan invalidiert.
+- Heute
+- Bibliothek
+- Lernen
+- Fortschritt
+- Profil
 
-## Prüfungssimulation
+Anforderungen:
 
-**Status: IMPLEMENTIERT ÜBER AIService**
+- touchfreundlich
+- klare Lade-/Leer-/Fehlerzustände
+- keine unnötige technische Komplexität für den Nutzer
+- gute Lesbarkeit
+- konsistente Terminologie
+- sinnvolle Accessibility Labels/Hints
+- Offline-Zustand transparent
+- Modus LOCAL/AUTO/CLOUD transparent
+- Provider-/Confidence-Information dort anzeigen, wo sie für Vertrauen relevant ist
 
-Die Prüfungssimulation behält ihre 30-Minuten-Logik, priorisierten Lernziele und vier Wissensdimensionen. Unbeantwortete Fragen zählen als 0. Bewertete Antworten speichern Provider, Confidence, Policy und Feedback. Schwache Lernziele unter 60 % fließen in Mastery, Knowledge Gaps und Tagesplanung zurück.
+## 28. Offline/PWA
 
-## Tutor über AIService
+Die persönliche Hauptversion ist als installierbare PWA ausgelegt:
 
-**Status: IMPLEMENTIERT**
+- GitHub Pages Hosting
+- Home-Screen-Installation
+- Standalone-Modus
+- IndexedDB
+- Service Worker/App Shell
+- offline-first
 
-Jedes Lernziel erhält einen quellengebundenen Tutorbereich. Tutor-Antworten laufen ausschließlich über `AIService.tutor()`.
+Externe Browserbibliotheken können beim ersten Abruf Internet benötigen und werden danach soweit möglich gecacht. Vollständige Offline-Fähigkeit insbesondere von OCR/PDF/FSRS muss auf realem Gerät geprüft werden.
 
-Kontextregel:
-- Lernzielstatement wird immer mitgegeben.
-- `sourceSnippet` und `sourcePage` werden mitgegeben.
-- Wenn das Ursprungsdokument vorhanden ist, werden die Quellseite und höchstens die direkt benachbarten Seiten als Kontext ergänzt.
-- Der Kontext wird begrenzt und mit Material-/Seitenangaben versehen.
-- Die Tutor-Instruktion verlangt ausdrücklich, nur auf Basis dieses Quellenkontexts zu antworten und Wissenslücken transparent zu benennen.
+**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v10.
 
-LOCAL-Tutor:
-- vollständig kostenfrei
-- extraktiv und quellengebunden
-- priorisiert Sätze aus dem Material anhand textlicher Überschneidung mit der Nutzerfrage
-- ergänzt kein externes Wissen
-- konservative Confidence
+## 29. PWA-Datenmodell
 
-Tutor-Verlauf wird lokal pro Lernziel gespeichert. Tutor-Antworten verändern Mastery nicht automatisch.
+IndexedDB `lernapp-pwa`, aktuell DB-Version 2.
 
-## Sichere Cloud-Anbindung
+Stores umfassen:
 
-**Status: CODESEITIG IMPLEMENTIERT, DEPLOYMENT NOCH AUSSTEHEND**
+- modules
+- documents
+- goals
+- flashcards
+- reviews
+- evidence
+- mastery
+- gaps
+- plans
+- settings
+- exams
+- examSessions
 
-Als Referenzimplementierung ist ein Cloudflare-Worker-Proxy unter `cloud-worker/` enthalten.
+Neue Persistenzanforderungen sollen migrationssicher eingeführt werden.
 
-Sicherheitsregeln:
-- OpenAI-API-Key nur als `OPENAI_API_KEY` Worker-Secret
-- optionaler persönlicher `LERNAPP_ACCESS_KEY` als separates Worker-Secret
-- PWA speichert nur Proxy-URL und optional den persönlichen Proxy-Zugriffsschlüssel lokal
-- kein API-Key im öffentlich ausgelieferten GitHub-Pages-Code
-- CORS kann mit `ALLOWED_ORIGIN` auf die PWA-Origin begrenzt werden
-- Browser darf keine beliebigen Prompts oder Modellparameter an den Proxy schicken; nur die fest definierten Lernapp-Aufgaben sind zulässig
-- OpenAI-Anfragen verwenden `store:false`
-- serverseitige Textlimits begrenzen Kosten und Missbrauch
-- strukturierte JSON-Ausgaben werden per JSON-Schema angefordert und serverseitig geparst
+## 30. Cloud-/Backend-Architektur
 
-Unterstützte Proxy-Aufgaben:
-- `summarize`
-- `tutor`
-- `generateLearningGoals`
-- `generateFlashcards`
-- `evaluateFreeAnswer`
-- `health` für den Verbindungstest
+Für skalierbaren Betrieb ist folgende Architektur festgelegt:
 
-### Cloud-Konfiguration in der PWA
+- FastAPI / Python
+- Pydantic v2
+- SQLAlchemy 2.x
+- Alembic
+- PostgreSQL
+- pgvector geplant
+- Celery
+- Redis
+- S3-kompatibler Object Storage
+- REST JSON / OpenAPI
+- strukturierte Logs
+- modularer Monolith + Worker-Prozesse
 
-Im Profil existiert nun eine eigene Karte **Cloud-Verbindung** mit:
-- Proxy-Endpunkt
-- persönlichem Zugriffsschlüssel
-- Speichern
-- Verbindung testen
-- Cloud-Verbindung entfernen
+Diese Cloudarchitektur ist optional für die persönliche PWA; der persönliche Kern darf davon nicht abhängig werden.
 
-Der Zugriffsschlüssel ist nicht der OpenAI-Key. Er schützt lediglich den persönlichen Proxy vor fremder Nutzung und wird nur lokal im Browser gespeichert.
+## 31. Native iOS/iPadOS
 
-## Architekturregel
+Es existiert zusätzlich ein SwiftUI-/SwiftData-Quellcodepfad mit XcodeGen-Definition.
 
-Tutor-Antworten, Zusammenfassungen und generierte Inhalte dürfen den deterministischen Mastery-Zustand nicht direkt setzen. Mastery wird nur aus Evidence abgeleitet.
+Native Statusbezeichnung:
 
-## Kostenprinzip
+**RC1 Source Candidate / quellcode-seitig RC1-ready pending external Apple runtime verification.**
 
-Datenhaltung, Coverage, Lernplanung, Fortschritt, FSRS, Statistiken und Statusübergänge bleiben ohne kostenpflichtige Cloud-KI nutzbar. GitHub Pages verursacht in der aktuellen persönlichen Nutzung keine laufenden App-Kosten. Der optionale Proxy kann innerhalb eines geeigneten Free-Tiers betrieben werden; externe KI-API-Nutzung kann trotzdem verbrauchsabhängige Kosten verursachen.
+Nicht als installationsgeprüfter RC1 bezeichnen, solange folgende externe Tests fehlen:
 
-## Nächste Implementierungsschritte
+- XcodeGen/Xcode Build auf macOS
+- Swift Package Resolution
+- Simulator
+- echtes iPhone/iPad Build/Signing
+- Vision OCR
+- Speech/Mikrofon
+- große PDFs
+- Persistence nach Neustart
+- LOCAL/API-Moduswechsel
 
-1. Cloudflare Worker tatsächlich deployen und Secrets/Variablen setzen.
-2. Cloud-Endpunkt in der PWA hinterlegen und `health`-Test auf echtem iPhone durchführen.
-3. Einen echten CLOUD-Test pro Funktion durchführen: Summary, Tutor, Lernziele, Karteikarten, freie Antwort.
-4. Kosten-/Nutzungslimit pro Monat und transparente Anzeige ergänzen.
-5. AI-Nutzungsprotokoll und Qualitäts-/Kostenmetriken ergänzen.
-6. Danach systematischer iPhone/iPad-Endtest des gesamten PWA-Flows.
+Die PWA ist für die persönliche Nutzung aktuell der praktischere Hauptpfad.
 
-## Changelog 3.14
+## 32. Qualitäts- und Sicherheitsregeln
 
-- persistente Cloud-Proxy-Konfiguration in `AIService` ergänzt
-- persönlicher Proxy-Zugriffsschlüssel unterstützt
-- HTTPS-Endpoint-Validierung ergänzt
-- `testCloud()`-Healthcheck ergänzt
-- neue Profilkarte `Cloud-Verbindung` ergänzt
-- neue Datei `cloud-settings.js`
-- Cloudflare-Worker-Referenzimplementierung unter `cloud-worker/src/index.js` ergänzt
-- Worker akzeptiert nur fünf freigegebene Lernapp-KI-Aufgaben plus Healthcheck
-- OpenAI-Key bleibt ausschließlich im Worker-Secret
-- CORS-Origin und persönlicher Zugriffsschlüssel als Schutzmechanismen ergänzt
-- strukturierte JSON-Schemas für alle Cloud-Aufgaben ergänzt
-- OpenAI-Aufrufe verwenden `store:false`
-- Deployment-Anleitung unter `cloud-worker/README.md` ergänzt
-- PWA-Cache auf v10 angehoben
+- keine API-Schlüssel im PWA-Code
+- generierter Inhalt setzt Mastery nicht direkt
+- Evidence muss Herkunft/Confidence nachvollziehbar machen
+- Antwort anzeigen ≠ unabhängiger Recall
+- unbeantwortete Prüfungsfrage = 0
+- Löschvorgänge dürfen keine fremden Materialien beschädigen
+- Importfehler dürfen keine inkonsistenten Teilimporte hinterlassen
+- Quellenreferenzen dürfen nicht erfunden werden
+- Cloud-Ausfall darf LOCAL-Kernbetrieb nicht zerstören
+- AUTO benötigt robusten Fallback
+- Änderungen an Lernregeln müssen testbar und dokumentiert sein
+
+## 33. Qualitätskontrolle / Audits
+
+Die App bzw. Entwicklung soll regelmäßig prüfen:
+
+- Source Coverage
+- Learning Goal Coverage
+- Assessment Coverage
+- verwaiste Daten
+- ungültige Quellenreferenzen
+- doppelte Lernziele/Karten
+- Mastery-Invarianten
+- FSRS-Verträge
+- Import-/Lösch-Cascades
+- Offline-Cache
+- Backup/Restore
+- LOCAL/AUTO/CLOUD-Parität
+
+Nach größeren Projektphasen: Master Spec aktualisieren, Changelog ergänzen, Selbstchecks ausführen, Fehler beheben und erneut testen.
+
+## 34. Feature-Status Gesamtübersicht
+
+| Bereich | Zielstatus |
+|---|---|
+| PWA Installation / Standalone | IMPLEMENTIERT + Basis-Gerätetest |
+| Lokale Datenhaltung | IMPLEMENTIERT |
+| Module/Bibliothek | IMPLEMENTIERT |
+| PDF/TXT/MD Import | IMPLEMENTIERT |
+| PDF-Textextraktion | IMPLEMENTIERT |
+| OCR-Fallback | IMPLEMENTIERT, Geräte-Endtest offen |
+| Material löschen | IMPLEMENTIERT, Geräte-Endtest offen |
+| Zusammenfassungen | IMPLEMENTIERT |
+| Highlights | IMPLEMENTIERT / Qualitätsaudit offen |
+| Lernziele | IMPLEMENTIERT |
+| automatische Karteikarten | IMPLEMENTIERT |
+| manuelle Karteikarten | IMPLEMENTIERT |
+| FSRS | IMPLEMENTIERT |
+| Quiz/offene Fragen | IMPLEMENTIERT |
+| freie Antwortbewertung | IMPLEMENTIERT; Cloud-E2E offen |
+| Mastery 4 Dimensionen | IMPLEMENTIERT |
+| Knowledge Gaps | IMPLEMENTIERT |
+| adaptiver Tagesplan | IMPLEMENTIERT |
+| Coverage | TEILWEISE / PWA-Endaudit offen |
+| Exam / Exam Scope | TEILWEISE / PWA-Endaudit offen |
+| Exam Readiness | TEILWEISE / PWA-Endaudit offen |
+| Prüfungssimulation | IMPLEMENTIERT |
+| Tutor | IMPLEMENTIERT |
+| Tutor „Prüf mich“ | OFFEN/SHOULD |
+| Speech | IMPLEMENTIERT als Progressive Enhancement, Gerätetest offen |
+| Analytics | IMPLEMENTIERT, Vollständigkeitsaudit offen |
+| Streak | IMPLEMENTIERT |
+| erweiterte Gamification | OPTIONAL/OFFEN |
+| JSON Backup/Restore | IMPLEMENTIERT |
+| LOCAL/AUTO/CLOUD | IMPLEMENTIERT |
+| Cloud-Proxy-Code | IMPLEMENTIERT |
+| Cloud-Proxy live | OFFEN |
+| AI-Kosten-/Nutzungslimit | OFFEN |
+| AI-Nutzungsprotokoll | OFFEN |
+| Knowledge Map | OPTIONAL/OFFEN |
+| vollständiger iPhone/iPad Endtest | OFFEN |
+
+## 35. Abnahmekriterien für die persönliche PWA
+
+Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad mindestens folgender End-to-End-Flow funktioniert:
+
+1. App installieren/öffnen.
+2. Modul anlegen.
+3. Text-PDF importieren.
+4. Scan-PDF importieren und OCR prüfen.
+5. Zusammenfassung und Highlights prüfen.
+6. Lernziele und Quellen prüfen.
+7. automatische und manuelle Karteikarten prüfen.
+8. FSRS-Review durchführen und Persistenz nach Neustart prüfen.
+9. Selbsttest/offene Antwort durchführen.
+10. Mastery/Gaps-Veränderung nachvollziehen.
+11. Tagesplan neu erzeugen und Anpassung prüfen.
+12. Prüfung anlegen, Scope/Readiness prüfen.
+13. Prüfungssimulation abschließen, inklusive unbeantworteter Frage.
+14. Tutor nutzen.
+15. Spracheingabe testen und Textfallback prüfen.
+16. Backup erstellen und Restore testen.
+17. Material löschen und Cascade prüfen.
+18. Offline neu öffnen und Kernfunktionen prüfen.
+19. LOCAL/AUTO/CLOUD-Modi testen.
+20. CLOUD nach Proxy-Deployment für alle fünf AIService-Aufgaben testen.
+
+## 36. Offene Prioritäten ab Version 3.15
+
+1. Cloudflare Worker tatsächlich deployen und Secrets/Origin setzen.
+2. Cloud-Verbindung auf echtem iPhone testen.
+3. Alle fünf CLOUD-AIService-Funktionen E2E testen.
+4. PWA Coverage, Exam Scope und Exam Readiness gegen diese Spezifikation auditieren und fehlende Parität schließen.
+5. Tutor „Prüf mich“ an die Evidence-Pipeline anbinden.
+6. AI-Kosten-/Nutzungslimit und Nutzungsprotokoll ergänzen.
+7. Analytics-/Gamification-Vollständigkeit prüfen.
+8. vollständigen iPhone/iPad-Abnahmetest durchführen.
+9. danach Release Candidate der persönlichen PWA erstellen.
+
+## 37. Änderungsregel
+
+Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.15
+
+- Master Specification vollständig konsolidiert statt nur inkrementell erweitert
+- ursprüngliche Produktvision und Kernlernzyklus wieder aufgenommen
+- vollständige MUST/SHOULD/OPTIONAL-Zielhierarchie ergänzt
+- Evidence-first-Wissenskette festgeschrieben
+- Materialtypen und Importanforderungen konsolidiert
+- Wissensmodell und vier Mastery-Dimensionen aufgenommen
+- Zusammenfassungen, Highlights, Lernziele, Karteikarten und FSRS vollständig spezifiziert
+- Selbsttests, freie Antworten, Knowledge Gaps und adaptive Planung konsolidiert
+- Coverage, Exam Scope und Exam Readiness wieder als verbindliche Kernziele aufgenommen
+- Prüfungssimulation, Tutor und Spracheingabe spezifiziert
+- Fortschritt, Analytics und Gamification aufgenommen
+- Dashboard-/Bibliotheks-/Backup-/UX-Ziele aufgenommen
+- LOCAL/AUTO/CLOUD und AIService konsolidiert
+- PWA-, Backend- und Native-Architektur dokumentiert
+- Qualitäts-/Sicherheitsregeln und Auditpflichten festgelegt
+- Gesamtstatusmatrix ergänzt
+- verbindliche reale PWA-Abnahmekriterien ergänzt
+- offene Prioritäten neu geordnet
