@@ -14,17 +14,9 @@ async function aiImportDelete(store,id){const db=await aiImportOpenDB();return n
 
 async function aiImportActiveModule(){const modules=await aiImportAll("modules");if(!modules.length)throw new Error("Kein Lernmodul vorhanden.");return modules[0];}
 
-let aiImportTesseractPromise=null;
 async function aiImportTesseract(){
-  if(window.Tesseract)return window.Tesseract;
-  if(!aiImportTesseractPromise){
-    aiImportTesseractPromise=new Promise((resolve,reject)=>{
-      const existing=document.querySelector('script[data-ai-import-tesseract]');
-      if(existing){existing.addEventListener("load",()=>resolve(window.Tesseract),{once:true});existing.addEventListener("error",reject,{once:true});return;}
-      const script=document.createElement("script");script.src="https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js";script.async=true;script.dataset.aiImportTesseract="1";script.onload=()=>resolve(window.Tesseract);script.onerror=reject;document.head.appendChild(script);
-    });
-  }
-  return aiImportTesseractPromise;
+  if(!window.LernappTesseract)throw new Error("OCR ist nicht verfügbar.");
+  return window.LernappTesseract();
 }
 
 async function aiImportExtractPDF(file){
@@ -56,8 +48,55 @@ async function aiImportExtractPDF(file){
   return pages;
 }
 
+const AI_IMPORT_IMAGE_MIME=new Set(["image/jpeg","image/png","image/webp","image/heic","image/heif"]);
+const AI_IMPORT_IMAGE_EXT=/\.(jpe?g|png|webp|heic|heif)$/i;
+const AI_IMPORT_MAX_EDGE=1600;
+
+function aiImportIsImage(file){
+  return AI_IMPORT_IMAGE_MIME.has(String(file.type||"").toLowerCase())||AI_IMPORT_IMAGE_EXT.test(file.name||"");
+}
+
+async function aiImportFileToBase64(file){
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  let binary="";
+  for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
+  return btoa(binary);
+}
+
+// Verkleinern spart Kontingent und hält die Anfrage unter dem Grössenlimit des Proxys.
+// Schlägt das Dekodieren fehl (z. B. HEIC ausserhalb von Safari), gehen die Originalbytes raus.
+async function aiImportDownscaleImage(file){
+  const declared=String(file.type||"").toLowerCase();
+  try{
+    const bitmap=await createImageBitmap(file);
+    const scale=Math.min(1,AI_IMPORT_MAX_EDGE/Math.max(bitmap.width,bitmap.height));
+    const width=Math.max(1,Math.round(bitmap.width*scale));
+    const height=Math.max(1,Math.round(bitmap.height*scale));
+    const canvas=document.createElement("canvas");
+    canvas.width=width;canvas.height=height;
+    canvas.getContext("2d",{alpha:false}).drawImage(bitmap,0,0,width,height);
+    bitmap.close?.();
+    const dataUrl=canvas.toDataURL("image/jpeg",0.85);
+    canvas.width=1;canvas.height=1;
+    return {imageBase64:dataUrl.replace(/^data:[^,]*,/,""),mimeType:"image/jpeg"};
+  }catch{
+    return {imageBase64:await aiImportFileToBase64(file),mimeType:AI_IMPORT_IMAGE_MIME.has(declared)?declared:"image/jpeg"};
+  }
+}
+
+async function aiImportExtractImage(file){
+  if(!window.AIService)throw new Error("AIService ist nicht verfügbar.");
+  aiImportToast("Bild wird analysiert …");
+  const {imageBase64,mimeType}=await aiImportDownscaleImage(file);
+  const result=await window.AIService.analyzeImage({imageBase64,mimeType});
+  const text=String(result?.text||"").replace(/\s+/g," ").trim();
+  if(!text)throw new Error("Aus dem Bild konnte kein lernrelevanter Inhalt gelesen werden.");
+  return [{page:1,text,extraction:result?.provider==="CLOUD"?"AI_VISION":"OCR",imageKind:result?.kind||"OTHER"}];
+}
+
 async function aiImportExtractFile(file){
   if(file.type==="application/pdf"||file.name.toLowerCase().endsWith(".pdf"))return aiImportExtractPDF(file);
+  if(aiImportIsImage(file))return aiImportExtractImage(file);
   const text=await file.text();
   const paras=text.split(/\n{2,}/).map(x=>x.trim()).filter(Boolean),pages=[];
   for(let i=0;i<paras.length;i+=8)pages.push({page:pages.length+1,text:paras.slice(i,i+8).join("\n\n"),extraction:"TEXT"});
@@ -76,19 +115,61 @@ function aiImportSourcePage(pages,answerKey){
   return pages[0]||{page:1,text:""};
 }
 
+const AI_IMPORT_SKIP_HEADINGS=/(inhaltsverzeichnis|literaturverzeichnis|quellenverzeichnis|abbildungsverzeichnis|tabellenverzeichnis|abkürzungsverzeichnis|stichwortverzeichnis|impressum|table of contents|bibliography)/i;
+const AI_IMPORT_MIN_WORDS=40;
+const AI_IMPORT_MAX_DIGIT_RATIO=0.2;
+const AI_IMPORT_DUPLICATE_THRESHOLD=0.8;
+const AI_IMPORT_CARD_BATCH=20;
+
+// Zahlen zaehlen unabhaengig von ihrer Laenge mit: in Lernstoff unterscheiden sich
+// Aufzaehlungen, Formeln und Jahreszahlen oft nur durch eine einzelne Ziffer.
+function aiImportContentWords(text){
+  return new Set(String(text||"").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>=4||/^\p{N}+$/u.test(w)));
+}
+
+function aiImportSimilarity(a,b){
+  if(!a.size||!b.size)return 0;
+  let shared=0;
+  a.forEach(w=>{if(b.has(w))shared++;});
+  return shared/(a.size+b.size-shared);
+}
+
+// Verzeichnisse, Register und Seitenzahl-Wüsten tragen keinen Lernstoff. Sie hier
+// auszusortieren spart pro übersprungener Seite einen kompletten KI-Aufruf.
+function aiImportHasLearningValue(text){
+  const value=String(text||"").trim();
+  if(AI_IMPORT_SKIP_HEADINGS.test(value.slice(0,200)))return false;
+  const words=value.split(/\s+/).filter(Boolean);
+  if(words.length<AI_IMPORT_MIN_WORDS)return false;
+  const digits=(value.match(/\d/g)||[]).length;
+  if(digits/value.length>AI_IMPORT_MAX_DIGIT_RATIO)return false;
+  return true;
+}
+
 async function aiImportGenerateGoals(pages,documentRecord,module){
   if(!window.AIService)throw new Error("AIService ist nicht verfügbar.");
   const created=[];
   const providerStatus=await window.AIService.status().catch(()=>null);
   const mode=await window.AIService.getMode();
+  const accepted=[];
+  let skippedPages=0,duplicates=0;
+  // Die Relevanzpruefung soll Ballast aus umfangreichen Dokumenten fernhalten.
+  // Ein einseitiger Import ist eine bewusste Auswahl des Nutzers, etwa das Foto
+  // einer kurzen Mitschrift, und darf nicht wegen seiner Kuerze verworfen werden.
+  const filterBulkPages=pages.length>1;
   for(const page of pages){
     const text=String(page.text||"").trim();
-    if(text.length<45)continue;
+    if(filterBulkPages&&!aiImportHasLearningValue(text)){skippedPages++;continue;}
     const result=await window.AIService.generateLearningGoals({text,title:documentRecord.title,sourcePage:page.page,documentId:documentRecord.id});
     const candidates=(result?.goals||[]).slice(0,3);
     for(const candidate of candidates){
       const answerKey=String(candidate.answerKey||candidate.statement||"").trim();
       if(!answerKey)continue;
+      // Dieselbe Aussage taucht in Skripten oft auf mehreren Seiten auf. Ohne
+      // diesen Vergleich entstehen daraus mehrere fast identische Karteikarten.
+      const fingerprint=aiImportContentWords(`${candidate.statement||""} ${answerKey}`);
+      if(accepted.some(known=>aiImportSimilarity(known,fingerprint)>=AI_IMPORT_DUPLICATE_THRESHOLD)){duplicates++;continue;}
+      accepted.push(fingerprint);
       const source=aiImportSourcePage([page],answerKey);
       const goal={
         id:aiImportUid(),moduleId:module.id,documentId:documentRecord.id,
@@ -103,18 +184,29 @@ async function aiImportGenerateGoals(pages,documentRecord,module){
       created.push(goal);
     }
   }
-  return created;
+  return {goals:created,skippedPages,duplicates};
 }
 
+// Alle Lernziele in einem Aufruf zu schicken hat bei grossen Dokumenten
+// stillschweigend Karten verloren: die Nutzlast wurde serverseitig gekuerzt.
+// Deshalb in Stapeln arbeiten und die Ergebnisse zusammenfuehren.
 async function aiImportGenerateCards(goals,module){
   if(!goals.length)return [];
-  const result=await window.AIService.generateFlashcards({goals:goals.map(g=>({id:g.id,statement:g.statement,answerKey:g.answerKey}))});
   const byGoal=new Map(goals.map(g=>[g.id,g]));
+  const generatedCards=[];
+  for(let i=0;i<goals.length;i+=AI_IMPORT_CARD_BATCH){
+    const batch=goals.slice(i,i+AI_IMPORT_CARD_BATCH);
+    if(goals.length>AI_IMPORT_CARD_BATCH)aiImportToast(`Karteikarten ${i+1} bis ${Math.min(i+AI_IMPORT_CARD_BATCH,goals.length)} von ${goals.length}`);
+    const result=await window.AIService.generateFlashcards({goals:batch.map(g=>({id:g.id,statement:g.statement,answerKey:g.answerKey}))});
+    for(const generated of result?.flashcards||[])generatedCards.push({generated,confidence:result?.confidence,provider:result?.provider});
+  }
   const created=[];
-  for(const generated of result?.flashcards||[]){
-    const goal=byGoal.get(generated.goalId);if(!goal)continue;
+  const seenGoals=new Set();
+  for(const {generated,confidence,provider} of generatedCards){
+    const goal=byGoal.get(generated.goalId);if(!goal||seenGoals.has(goal.id))continue;
+    seenGoals.add(goal.id);
     const fsrsCard=await aiImportNewFSRSCard();
-    const card={id:aiImportUid(),moduleId:module.id,goalId:goal.id,prompt:String(generated.prompt||goal.statement).trim(),answer:String(generated.answer||goal.answerKey).trim(),dueAt:fsrsCard.due,fsrsCard,reviewCount:0,lapseCount:0,createdAt:aiImportNow(),manual:false,generatedBy:"AIService",aiProvider:result?.provider||goal.aiProvider||"UNKNOWN",aiMode:goal.aiMode,generationConfidence:Number.isFinite(result?.confidence)?result.confidence:null};
+    const card={id:aiImportUid(),moduleId:module.id,goalId:goal.id,prompt:String(generated.prompt||goal.statement).trim(),answer:String(generated.answer||goal.answerKey).trim(),dueAt:fsrsCard.due,fsrsCard,reviewCount:0,lapseCount:0,createdAt:aiImportNow(),manual:false,generatedBy:"AIService",aiProvider:provider||goal.aiProvider||"UNKNOWN",aiMode:goal.aiMode,generationConfidence:Number.isFinite(confidence)?confidence:null};
     await aiImportPut("flashcards",card);created.push(card);
   }
   return created;
@@ -130,13 +222,14 @@ async function aiImportStudyFile(file){
   try{
     await aiImportPut("documents",documentRecord);stored=true;
     aiImportToast("Lernziele werden erstellt …");
-    const goals=await aiImportGenerateGoals(pages,documentRecord,module);
+    const {goals,skippedPages,duplicates}=await aiImportGenerateGoals(pages,documentRecord,module);
     if(!goals.length)throw new Error("Es konnten keine sinnvollen Lernziele erzeugt werden.");
     aiImportToast("Karteikarten werden erstellt …");
     const cards=await aiImportGenerateCards(goals,module);
     const planId=`${module.id}:${aiImportDayKey()}`;
     await aiImportDelete("plans",planId).catch(()=>{});
-    aiImportToast(`${goals.length} Lernziele · ${cards.length} Karteikarten erstellt`);
+    const filtered=[skippedPages?`${skippedPages} Seiten ohne Lernstoff übersprungen`:null,duplicates?`${duplicates} Dubletten verworfen`:null].filter(Boolean);
+    aiImportToast(`${goals.length} Lernziele · ${cards.length} Karteikarten erstellt${filtered.length?` · ${filtered.join(" · ")}`:""}`);
     return documentRecord;
   }catch(error){
     if(stored){

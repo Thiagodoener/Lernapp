@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.15 — 10.09.2026
+## Version 3.17 — 10.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -112,6 +112,7 @@ Zielumfang:
 - textbasierte PDFs
 - gescannte PDFs über OCR
 - Text in Bildern/gescannten Seiten über OCR-Pipeline
+- Bilddateien (JPEG, PNG, WebP, HEIC/HEIF) wie Fotos von Mitschriften, Folien, Tafelbildern und Skizzen
 
 ### Importregeln
 
@@ -121,7 +122,17 @@ Zielumfang:
 - Verarbeitung darf keine halbfertigen abhängigen Daten zurücklassen.
 - Importiertes Material muss wieder vollständig löschbar sein.
 
-**PWA-Status:** PDF/TXT/Markdown, PDF.js-Textextraktion und Tesseract-OCR-Fallback implementiert. Vollständige reale Gerätetests aller Materialtypen stehen aus.
+**PWA-Status:** PDF/TXT/Markdown, PDF.js-Textextraktion und Tesseract-OCR-Fallback implementiert. Bildimport implementiert: im CLOUD-Modus über `AIService.analyzeImage()` mit Bildverstehen, im LOCAL-Modus über Tesseract-OCR. Bilder werden vor dem Versand clientseitig auf maximal 1600 px Kantenlänge verkleinert, um Kontingent und Anfragegröße zu begrenzen. Vollständige reale Gerätetests aller Materialtypen stehen aus.
+
+### Bildanalyse
+
+Aus einem Bild wird lernbarer Text erzeugt, der anschließend die normale Lernziel- und Karteikartenpipeline durchläuft. Regeln:
+
+- Lesbarer Text wird wortgetreu übernommen, auch Handschrift.
+- Formeln, Diagramme, Tabellen und Skizzen werden inhaltlich beschrieben, damit ihr fachlicher Gehalt lernbar wird.
+- Unleserliche Stellen werden als `[unleserlich]` markiert und nicht geraten.
+- Es wird nichts ergänzt, was das Bild nicht zeigt.
+- Die erzeugte Seite wird als `AI_VISION` (CLOUD) oder `OCR` (LOCAL) gekennzeichnet, damit die Herkunft nachvollziehbar bleibt.
 
 ## 5. Wissensmodell
 
@@ -206,7 +217,18 @@ Aus Material werden konkrete, lernbare Ziele erzeugt. Lernziele müssen:
 - für Assessment und Planung verwendbar sein
 - Coverage ermöglichen
 
-**Status:** automatische Generierung über `AIService.generateLearningGoals()` implementiert; lokale Baseline und Cloud-Schnittstelle vorhanden.
+### Relevanzprüfung und Dubletten
+
+Lernziele werden pro Quellseite erzeugt. Damit daraus kein Wildwuchs entsteht, gelten zwei Regeln:
+
+- **Relevanzprüfung:** Seiten ohne Lernstoff werden übersprungen, bevor ein KI-Aufruf entsteht. Erkannt werden Verzeichnisse und Register, zu dünne Seiten und Seiten mit überwiegend Ziffern. Die Prüfung greift nur bei mehrseitigen Dokumenten; ein einseitiger Import ist eine bewusste Auswahl des Nutzers und wird nie wegen seiner Kürze verworfen.
+- **Dublettenprüfung:** Inhaltlich nahezu gleiche Lernziele innerhalb eines Dokuments werden verworfen. Verglichen wird die Überschneidung der Inhaltswörter; Zahlen zählen unabhängig von ihrer Länge mit, damit sich Aufzählungen, Formeln und Jahreszahlen weiterhin unterscheiden.
+
+Die Dublettenprüfung wirkt bewusst nur innerhalb eines Dokuments. Dokumentübergreifendes Zusammenlegen würde die materialbezogene Lösch-Cascade aus Kapitel 22 verletzen.
+
+Beides dient zugleich dem Kostenprinzip: jede übersprungene Seite spart einen vollständigen KI-Aufruf.
+
+**Status:** automatische Generierung über `AIService.generateLearningGoals()` implementiert; lokale Baseline und Cloud-Schnittstelle vorhanden. Relevanz- und Dublettenprüfung implementiert.
 
 ## 9. Karteikarten und FSRS
 
@@ -218,6 +240,10 @@ Aus Material werden konkrete, lernbare Ziele erzeugt. Lernziele müssen:
 - Again / Hard / Good / Easy
 - FSRS bestimmt den Wiederholungszeitpunkt
 - Antwort anzeigen und Selbstbewertung dürfen nicht fälschlich als unabhängiger Recall gewertet werden
+
+### Erzeugung in Stapeln
+
+Karteikarten werden in Stapeln von höchstens 20 Lernzielen erzeugt. Vorher gingen alle Lernziele eines Dokuments in einem einzigen Aufruf raus; die Nutzlast wurde serverseitig gekürzt, sodass bei umfangreichem Material ein Teil der Karten stillschweigend verloren ging. Pro Lernziel entsteht höchstens eine Karte.
 
 **Status:** PWA verwendet `ts-fsrs` 5.4.1 mit expliziten 21 FSRS-6-Parametern. Native Implementierung verwendet FSRS-6-kompatible Swift-Abhängigkeit. Manuelle Karten sind vorgesehen/implementiert.
 
@@ -311,7 +337,7 @@ Coverage soll mindestens unterscheiden:
 
 Das Ziel ist nicht künstlich 100 %, sondern das frühzeitige Erkennen von blinden Flecken.
 
-**Status:** Backend-/Architekturkonzept implementiert; PWA-Parität muss im Endaudit ausdrücklich geprüft werden.
+**Status:** Als Architekturkonzept festgelegt. In der PWA nicht implementiert: es existiert keine Coverage-Berechnung im Code. Diese Lücke ist die Hauptursache dafür, dass der Lernplan derzeit nicht erkennen kann, welcher importierte Stoff noch gar nicht abgedeckt ist.
 
 ## 14. Prüfungen und Exam Scope
 
@@ -330,7 +356,7 @@ Die App soll eine nachvollziehbare Prüfungsbereitschaft anzeigen. V1-Gewichtung
 
 Readiness ist eine Lernsteuerungsmetrik und **keine Bestehensgarantie**.
 
-**Status:** Backend/native Logik vorhanden. Vollständige PWA-Darstellung/Parität im Endaudit prüfen.
+**Status:** Als Architekturkonzept festgelegt. In der PWA nicht implementiert: es existiert keine Readiness-Berechnung im Code.
 
 ## 16. Prüfungssimulation
 
@@ -509,8 +535,9 @@ Zentrale Schnittstellen:
 - `generateLearningGoals`
 - `generateFlashcards`
 - `evaluateFreeAnswer`
+- `analyzeImage`
 
-Alle semantischen KI-Funktionen müssen über diese Abstraktion laufen, damit LOCAL/AUTO/CLOUD austauschbar bleiben.
+Alle semantischen KI-Funktionen müssen über diese Abstraktion laufen, damit LOCAL/AUTO/CLOUD austauschbar bleiben. Das gilt ausdrücklich auch für die Bildanalyse: `analyzeImage` besitzt eine kostenfreie LOCAL-Implementierung über Tesseract-OCR und eine CLOUD-Implementierung mit Bildverstehen.
 
 Implementiert sind außerdem:
 
@@ -526,16 +553,18 @@ Implementiert sind außerdem:
 
 Referenz: `cloud-worker/`.
 
+Der Proxy nutzt Gemini. Ausschlaggebend sind zwei Eigenschaften: native Bildverarbeitung im selben Aufruf wie Text, was `analyzeImage` erst möglich macht, und ein kostenloses Kontingent, mit dem der persönliche Einzelbetrieb dem Kostenprinzip aus Kapitel 3.5 entspricht.
+
 Regeln:
 
-- `OPENAI_API_KEY` nur als serverseitiges Secret
+- `GEMINI_API_KEY` nur als serverseitiges Secret
 - optional `LERNAPP_ACCESS_KEY`
 - CORS auf PWA-Origin begrenzbar
 - PWA darf keine beliebigen Modelle/Systemprompts bestimmen
 - Proxy akzeptiert nur freigegebene Lernapp-Tasks
-- `store:false`
 - Eingabe-/Textlimits
-- strukturierte JSON-Ausgaben
+- Bilder nur in freigegebenen MIME-Typen und begrenzter Größe
+- strukturierte JSON-Ausgaben über `responseSchema`
 - Healthcheck
 
 Unterstützte Tasks:
@@ -545,7 +574,12 @@ Unterstützte Tasks:
 - generateLearningGoals
 - generateFlashcards
 - evaluateFreeAnswer
+- analyzeImage
 - health
+
+### Kontingent und Kosten
+
+Textaufgaben sind im kostenlosen Kontingent für den Einzelbetrieb in der Regel ausreichend abgedeckt. `analyzeImage` verbraucht pro Bild deutlich mehr Kontingent als eine Textanfrage. Werden Minuten- oder Tagesgrenzen erreicht, bleibt LOCAL der kostenfreie Fallback. Videoanalyse ist bewusst nicht Teil dieser Version, weil sie mit kostenfreiem Betrieb nicht verlässlich vereinbar ist.
 
 ## 27. UI/UX-Anforderungen
 
@@ -691,11 +725,16 @@ Nach größeren Projektphasen: Master Spec aktualisieren, Changelog ergänzen, S
 | PDF/TXT/MD Import | IMPLEMENTIERT |
 | PDF-Textextraktion | IMPLEMENTIERT |
 | OCR-Fallback | IMPLEMENTIERT, Geräte-Endtest offen |
+| Bildimport (Foto, Mitschrift, Folie, Skizze) | IMPLEMENTIERT, Geräte-Endtest offen |
+| Bildverstehen im CLOUD-Modus | IMPLEMENTIERT, Live-Test nach Deployment offen |
 | Material löschen | IMPLEMENTIERT, Geräte-Endtest offen |
 | Zusammenfassungen | IMPLEMENTIERT |
 | Highlights | IMPLEMENTIERT / Qualitätsaudit offen |
 | Lernziele | IMPLEMENTIERT |
 | automatische Karteikarten | IMPLEMENTIERT |
+| Relevanzprüfung beim Import | IMPLEMENTIERT |
+| Dublettenprüfung für Lernziele | IMPLEMENTIERT |
+| Karteikartenerzeugung in Stapeln | IMPLEMENTIERT |
 | manuelle Karteikarten | IMPLEMENTIERT |
 | FSRS | IMPLEMENTIERT |
 | Quiz/offene Fragen | IMPLEMENTIERT |
@@ -703,9 +742,9 @@ Nach größeren Projektphasen: Master Spec aktualisieren, Changelog ergänzen, S
 | Mastery 4 Dimensionen | IMPLEMENTIERT |
 | Knowledge Gaps | IMPLEMENTIERT |
 | adaptiver Tagesplan | IMPLEMENTIERT |
-| Coverage | TEILWEISE / PWA-Endaudit offen |
-| Exam / Exam Scope | TEILWEISE / PWA-Endaudit offen |
-| Exam Readiness | TEILWEISE / PWA-Endaudit offen |
+| Coverage | IN DER PWA NICHT IMPLEMENTIERT |
+| Exam / Exam Scope | Exam-Modelle vorhanden, Scope in der PWA nicht implementiert |
+| Exam Readiness | IN DER PWA NICHT IMPLEMENTIERT |
 | Prüfungssimulation | IMPLEMENTIERT |
 | Tutor | IMPLEMENTIERT |
 | Tutor „Prüf mich“ | OFFEN/SHOULD |
@@ -747,11 +786,11 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 19. LOCAL/AUTO/CLOUD-Modi testen.
 20. CLOUD nach Proxy-Deployment für alle fünf AIService-Aufgaben testen.
 
-## 36. Offene Prioritäten ab Version 3.15
+## 36. Offene Prioritäten ab Version 3.16
 
-1. Cloudflare Worker tatsächlich deployen und Secrets/Origin setzen.
+1. Cloudflare Worker tatsächlich deployen, `GEMINI_API_KEY`/`GEMINI_MODEL`/Origin setzen.
 2. Cloud-Verbindung auf echtem iPhone testen.
-3. Alle fünf CLOUD-AIService-Funktionen E2E testen.
+3. Alle sechs CLOUD-AIService-Funktionen E2E testen, insbesondere `analyzeImage` mit einer echten handschriftlichen Mitschrift.
 4. PWA Coverage, Exam Scope und Exam Readiness gegen diese Spezifikation auditieren und fehlende Parität schließen.
 5. Tutor „Prüf mich“ an die Evidence-Pipeline anbinden.
 6. AI-Kosten-/Nutzungslimit und Nutzungsprotokoll ergänzen.
@@ -762,6 +801,25 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.17
+
+- Relevanzprüfung beim Import ergänzt: Verzeichnisse, Register und zu dünne Seiten erzeugen keine Lernziele und keinen KI-Aufruf mehr
+- Relevanzprüfung greift bewusst nicht bei einseitigen Importen, damit kurze Mitschriften nicht verworfen werden
+- Dublettenprüfung für Lernziele innerhalb eines Dokuments ergänzt
+- Karteikartenerzeugung auf Stapel von 20 Lernzielen umgestellt; zuvor gingen bei umfangreichem Material Karten stillschweigend verloren
+- Importmeldung nennt jetzt übersprungene Seiten und verworfene Dubletten
+
+## Changelog 3.16
+
+- Bildimport ergänzt: JPEG, PNG, WebP und HEIC/HEIF als Lernmaterial
+- `analyzeImage` als sechste AIService-Aufgabe aufgenommen, mit LOCAL-OCR und CLOUD-Bildverstehen
+- Cloud-Proxy von OpenAI auf Gemini umgestellt, weil nur damit Bildverstehen und kostenloses Kontingent zusammenkommen
+- strukturierte Ausgaben im Proxy auf `responseSchema` umgestellt, Confidence-Werte werden serverseitig begrenzt
+- clientseitige Bildverkleinerung auf 1600 px ergänzt, um Kontingent und Anfragegröße zu begrenzen
+- doppelten Tesseract-Loader entfernt, OCR wird zentral über den AIService bereitgestellt
+- Statusangaben zu Coverage, Exam Scope und Exam Readiness gegen den Code korrigiert: diese Bereiche sind in der PWA nicht implementiert, nicht teilweise
+- Kontingent- und Kostenabschnitt für den Cloud-Betrieb ergänzt, Videoanalyse ausdrücklich ausgeklammert
 
 ## Changelog 3.15
 
