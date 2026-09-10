@@ -1,4 +1,5 @@
-const OPENAI_URL="https://api.openai.com/v1/responses";
+const GEMINI_BASE="https://generativelanguage.googleapis.com/v1beta/models";
+const MAX_INLINE_IMAGE_BASE64=7_000_000;
 
 function cors(origin,env){
   const allowed=String(env.ALLOWED_ORIGIN||"").trim();
@@ -16,21 +17,20 @@ function json(data,status,origin,env){return new Response(JSON.stringify(data),{
 function clamp(v){return Math.max(0,Math.min(1,Number(v)||0));}
 function clean(value,max=60000){return String(value||"").replace(/\u0000/g,"").slice(0,max);}
 
+const IMAGE_MIME=new Set(["image/jpeg","image/png","image/webp","image/heic","image/heif"]);
+
 function outputText(body){
-  if(typeof body?.output_text==="string")return body.output_text;
-  for(const item of body?.output||[]){
-    if(item?.type!=="message")continue;
-    for(const part of item.content||[]){if(part?.type==="output_text"&&typeof part.text==="string")return part.text;}
-  }
-  return "";
+  const parts=body?.candidates?.[0]?.content?.parts||[];
+  return parts.map(p=>typeof p?.text==="string"?p.text:"").join("").trim();
 }
 
 const schemas={
-  summarize:{type:"object",additionalProperties:false,required:["summary","confidence"],properties:{summary:{type:"string"},confidence:{type:"number",minimum:0,maximum:1}}},
-  tutor:{type:"object",additionalProperties:false,required:["answer","confidence","grounded"],properties:{answer:{type:"string"},confidence:{type:"number",minimum:0,maximum:1},grounded:{type:"boolean"}}},
-  generateLearningGoals:{type:"object",additionalProperties:false,required:["goals","confidence"],properties:{goals:{type:"array",maxItems:12,items:{type:"object",additionalProperties:false,required:["statement","answerKey"],properties:{statement:{type:"string"},answerKey:{type:"string"}}}},confidence:{type:"number",minimum:0,maximum:1}}},
-  generateFlashcards:{type:"object",additionalProperties:false,required:["flashcards","confidence"],properties:{flashcards:{type:"array",maxItems:30,items:{type:"object",additionalProperties:false,required:["goalId","prompt","answer"],properties:{goalId:{type:"string"},prompt:{type:"string"},answer:{type:"string"}}}},confidence:{type:"number",minimum:0,maximum:1}}},
-  evaluateFreeAnswer:{type:"object",additionalProperties:false,required:["score","confidence","feedback"],properties:{score:{type:"number",minimum:0,maximum:1},confidence:{type:"number",minimum:0,maximum:1},feedback:{type:"string"}}}
+  summarize:{type:"OBJECT",required:["summary","confidence"],properties:{summary:{type:"STRING"},confidence:{type:"NUMBER"}}},
+  tutor:{type:"OBJECT",required:["answer","confidence","grounded"],properties:{answer:{type:"STRING"},confidence:{type:"NUMBER"},grounded:{type:"BOOLEAN"}}},
+  generateLearningGoals:{type:"OBJECT",required:["goals","confidence"],properties:{goals:{type:"ARRAY",items:{type:"OBJECT",required:["statement","answerKey"],properties:{statement:{type:"STRING"},answerKey:{type:"STRING"}}}},confidence:{type:"NUMBER"}}},
+  generateFlashcards:{type:"OBJECT",required:["flashcards","confidence"],properties:{flashcards:{type:"ARRAY",items:{type:"OBJECT",required:["goalId","prompt","answer"],properties:{goalId:{type:"STRING"},prompt:{type:"STRING"},answer:{type:"STRING"}}}},confidence:{type:"NUMBER"}}},
+  evaluateFreeAnswer:{type:"OBJECT",required:["score","confidence","feedback"],properties:{score:{type:"NUMBER"},confidence:{type:"NUMBER"},feedback:{type:"STRING"}}},
+  analyzeImage:{type:"OBJECT",required:["text","kind","confidence"],properties:{text:{type:"STRING"},kind:{type:"STRING",enum:["HANDWRITTEN_NOTE","SLIDE","DIAGRAM","TEXT_PAGE","SCREENSHOT","PHOTO","OTHER"]},confidence:{type:"NUMBER"}}}
 };
 
 function taskPrompt(task,payload){
@@ -39,32 +39,47 @@ function taskPrompt(task,payload){
   if(task==="generateLearningGoals")return `Erzeuge bis zu 3 atomare, prüfbare Lernziele aus genau dieser Quelle. Jedes Lernziel muss durch den Quelltext getragen sein. answerKey enthält die fachliche Sollantwort aus der Quelle.\n\nSEITE: ${clean(payload.sourcePage,20)}\n\nQUELLE:\n${clean(payload.text)}`;
   if(task==="generateFlashcards")return `Erzeuge pro Lernziel höchstens eine präzise Karteikarte. goalId muss exakt übernommen werden. Frage aktivierend, Antwort knapp aber vollständig.\n\nLERNZIELE:\n${clean(JSON.stringify(payload.goals||[]),30000)}`;
   if(task==="evaluateFreeAnswer")return `Bewerte die freie Antwort fachlich nur gegen Sollantwort und Quellenkontext. Bewerte sinngemäße richtige Formulierungen positiv, aber erfinde keine Anforderungen. score 0 bis 1. confidence beschreibt Sicherheit der Bewertung. Feedback nennt konkret, was richtig ist und was fehlt.\n\nFRAGE: ${clean(payload.question,4000)}\n\nSOLLANTWORT: ${clean(payload.expected,10000)}\n\nQUELLENKONTEXT: ${clean(payload.context,12000)}\n\nANTWORT DES LERNENDEN: ${clean(payload.answer,10000)}`;
+  if(task==="analyzeImage")return `Erfasse den gesamten lernrelevanten Inhalt dieses Bildes als zusammenhängenden Text.\n\nRegeln:\n- Lesbaren Text wortgetreu übernehmen, auch Handschrift.\n- Formeln, Diagramme, Tabellen und Skizzen so beschreiben, dass ihr fachlicher Inhalt lernbar wird, inklusive Beschriftungen, Achsen, Beziehungen und Richtungen.\n- Struktur wie Überschriften, Nummerierungen und Aufzählungen erhalten.\n- Nichts ergänzen, interpretieren oder ausschmücken, was das Bild nicht zeigt.\n- Unleserliche Stellen ausdrücklich als [unleserlich] markieren statt zu raten.\n- Enthält das Bild keinen lernrelevanten Inhalt, gib einen leeren text zurück.\n\nkind beschreibt die Art der Vorlage. confidence beschreibt, wie sicher der Inhalt erfasst wurde.${payload.note?`\n\nHINWEIS DES NUTZERS: ${clean(payload.note,2000)}`:""}`;
   throw new Error("Unbekannte Aufgabe.");
 }
 
-async function callOpenAI(task,payload,env){
-  if(!env.OPENAI_API_KEY)throw new Error("OPENAI_API_KEY fehlt im Worker-Secret.");
-  if(!env.OPENAI_MODEL)throw new Error("OPENAI_MODEL fehlt in der Worker-Konfiguration.");
+function requestParts(task,payload){
+  const parts=[{text:taskPrompt(task,payload)}];
+  if(task!=="analyzeImage")return parts;
+  const mimeType=String(payload.mimeType||"").trim().toLowerCase();
+  if(!IMAGE_MIME.has(mimeType))throw new Error("Nicht unterstütztes Bildformat.");
+  const data=String(payload.imageBase64||"").replace(/^data:[^,]*,/,"").trim();
+  if(!data)throw new Error("Es wurde kein Bild übertragen.");
+  if(data.length>MAX_INLINE_IMAGE_BASE64)throw new Error("Das Bild ist zu groß für die Analyse.");
+  parts.push({inline_data:{mime_type:mimeType,data}});
+  return parts;
+}
+
+async function callGemini(task,payload,env){
+  if(!env.GEMINI_API_KEY)throw new Error("GEMINI_API_KEY fehlt im Worker-Secret.");
+  if(!env.GEMINI_MODEL)throw new Error("GEMINI_MODEL fehlt in der Worker-Konfiguration.");
   const schema=schemas[task];
   if(!schema)throw new Error("Nicht unterstützte KI-Aufgabe.");
-  const response=await fetch(OPENAI_URL,{
+  const response=await fetch(`${GEMINI_BASE}/${encodeURIComponent(env.GEMINI_MODEL)}:generateContent`,{
     method:"POST",
-    headers:{"Authorization":`Bearer ${env.OPENAI_API_KEY}`,"Content-Type":"application/json"},
+    headers:{"x-goog-api-key":env.GEMINI_API_KEY,"Content-Type":"application/json"},
     body:JSON.stringify({
-      model:env.OPENAI_MODEL,
-      store:false,
-      instructions:"Du bist die semantische KI-Schicht einer wissenschaftlich orientierten Lernapp. Arbeite strikt quellengebunden und gib nur das angeforderte strukturierte Ergebnis zurück.",
-      input:taskPrompt(task,payload||{}),
-      text:{format:{type:"json_schema",name:`lernapp_${task}`,strict:true,schema}}
+      systemInstruction:{parts:[{text:"Du bist die semantische KI-Schicht einer wissenschaftlich orientierten Lernapp. Arbeite strikt quellengebunden und gib nur das angeforderte strukturierte Ergebnis zurück."}]},
+      contents:[{role:"user",parts:requestParts(task,payload||{})}],
+      generationConfig:{temperature:0.2,maxOutputTokens:8192,responseMimeType:"application/json",responseSchema:schema}
     })
   });
   const body=await response.json();
-  if(!response.ok)throw new Error(body?.error?.message||`OpenAI Fehler (${response.status})`);
+  if(!response.ok)throw new Error(body?.error?.message||`Gemini Fehler (${response.status})`);
+  const blockReason=body?.promptFeedback?.blockReason;
+  if(blockReason)throw new Error(`Die Anfrage wurde vom Modell blockiert (${blockReason}).`);
+  const finishReason=body?.candidates?.[0]?.finishReason;
+  if(finishReason==="MAX_TOKENS")throw new Error("Die Antwort wurde abgeschnitten. Bitte kleineren Abschnitt verarbeiten.");
   const text=outputText(body);
-  if(!text)throw new Error("Die KI hat kein auswertbares Ergebnis geliefert.");
+  if(!text)throw new Error(`Die KI hat kein auswertbares Ergebnis geliefert${finishReason?` (${finishReason})`:""}.`);
   let parsed;
   try{parsed=JSON.parse(text);}catch{throw new Error("Die KI-Antwort war kein gültiges JSON.");}
-  return {...parsed,provider:"CLOUD",model:body.model||env.OPENAI_MODEL};
+  return {...parsed,provider:"CLOUD",model:body.modelVersion||env.GEMINI_MODEL};
 }
 
 export default {
@@ -79,11 +94,12 @@ export default {
     let body;
     try{body=await request.json();}catch{return json({error:"Ungültiges JSON."},400,origin,env);}
     const task=body?.task;
-    if(task==="health")return json({ok:true,provider:"Cloud-Proxy",model:env.OPENAI_MODEL||null},200,origin,env);
+    if(task==="health")return json({ok:true,provider:"Cloud-Proxy",model:env.GEMINI_MODEL||null},200,origin,env);
     if(!schemas[task])return json({error:"Unbekannte Aufgabe."},400,origin,env);
     try{
-      const result=await callOpenAI(task,body?.payload||{},env);
-      if(task==="evaluateFreeAnswer"){result.score=clamp(result.score);result.confidence=clamp(result.confidence);}
+      const result=await callGemini(task,body?.payload||{},env);
+      if(task==="evaluateFreeAnswer")result.score=clamp(result.score);
+      if("confidence" in result)result.confidence=clamp(result.confidence);
       return json(result,200,origin,env);
     }catch(error){return json({error:String(error?.message||error)},502,origin,env);}
   }

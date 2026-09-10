@@ -58,6 +58,25 @@ function localTokenScore(expected,actual){
   return Math.max(0,Math.min(1,hits/e.size));
 }
 
+const TESSERACT_SRC="https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js";
+let tesseractPromise=null;
+
+function loadTesseract(){
+  if(window.Tesseract)return Promise.resolve(window.Tesseract);
+  if(!tesseractPromise){
+    tesseractPromise=new Promise((resolve,reject)=>{
+      const existing=document.querySelector("script[data-lernapp-tesseract]");
+      if(existing){existing.addEventListener("load",()=>resolve(window.Tesseract),{once:true});existing.addEventListener("error",reject,{once:true});return;}
+      const script=document.createElement("script");
+      script.src=TESSERACT_SRC;script.async=true;script.dataset.lernappTesseract="1";
+      script.onload=()=>resolve(window.Tesseract);
+      script.onerror=()=>reject(new Error("OCR-Bibliothek konnte nicht geladen werden."));
+      document.head.appendChild(script);
+    }).catch(error=>{tesseractPromise=null;throw error;});
+  }
+  return tesseractPromise;
+}
+
 function localTutor({message="",context=""}={}){
   const terms=[...String(message).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(x=>x.length>=4)];
   const chunks=String(context).split(/\n{2,}/).map(x=>x.trim()).filter(Boolean);
@@ -87,6 +106,17 @@ const localProvider={
   async evaluateFreeAnswer({expected="",answer=""}={}){
     const score=localTokenScore(expected,answer);
     return {provider:"LOCAL",score,confidence:0.35,feedback:score>=0.7?"Wesentliche Inhalte sind enthalten.":score>=0.4?"Ein Teil der wesentlichen Inhalte ist enthalten; zentrale Begriffe oder Zusammenhänge fehlen noch.":"Es fehlen noch wichtige Begriffe oder Zusammenhänge."};
+  },
+  async analyzeImage({imageBase64="",mimeType=""}={}){
+    const data=String(imageBase64).replace(/^data:[^,]*,/,"").trim();
+    if(!data)throw new Error("Es wurde kein Bild übergeben.");
+    const Tesseract=await loadTesseract();
+    const worker=await Tesseract.createWorker("deu+eng",1);
+    try{
+      const result=await worker.recognize(`data:${mimeType||"image/jpeg"};base64,${data}`);
+      const text=String(result?.data?.text||"").replace(/\s+/g," ").trim();
+      return {provider:"LOCAL",text,kind:"OTHER",confidence:Math.min(0.4,Math.max(0,Number(result?.data?.confidence)||0)/100*0.4)};
+    }finally{await worker.terminate().catch(()=>{});}
   }
 };
 
@@ -117,7 +147,8 @@ const cloudProvider={
   tutor(payload){return this.call("tutor",payload);},
   generateLearningGoals(payload){return this.call("generateLearningGoals",payload);},
   generateFlashcards(payload){return this.call("generateFlashcards",payload);},
-  evaluateFreeAnswer(payload){return this.call("evaluateFreeAnswer",payload);}
+  evaluateFreeAnswer(payload){return this.call("evaluateFreeAnswer",payload);},
+  analyzeImage(payload){return this.call("analyzeImage",payload);}
 };
 
 async function selectedProvider(){
@@ -163,6 +194,7 @@ const AIService={
   tutor(payload){return this.run("tutor",payload);},
   generateLearningGoals(payload){return this.run("generateLearningGoals",payload);},
   generateFlashcards(payload){return this.run("generateFlashcards",payload);},
+  analyzeImage(payload){return this.run("analyzeImage",payload);},
   async evaluateFreeAnswer(payload){
     const mode=await this.getMode();
     if(mode===AI_MODES.LOCAL)return localProvider.evaluateFreeAnswer(payload);
@@ -185,3 +217,4 @@ const AIService={
 
 window.AIService=AIService;
 window.LernappAIModes=AI_MODES;
+window.LernappTesseract=loadTesseract;

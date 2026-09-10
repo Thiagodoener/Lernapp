@@ -14,17 +14,9 @@ async function aiImportDelete(store,id){const db=await aiImportOpenDB();return n
 
 async function aiImportActiveModule(){const modules=await aiImportAll("modules");if(!modules.length)throw new Error("Kein Lernmodul vorhanden.");return modules[0];}
 
-let aiImportTesseractPromise=null;
 async function aiImportTesseract(){
-  if(window.Tesseract)return window.Tesseract;
-  if(!aiImportTesseractPromise){
-    aiImportTesseractPromise=new Promise((resolve,reject)=>{
-      const existing=document.querySelector('script[data-ai-import-tesseract]');
-      if(existing){existing.addEventListener("load",()=>resolve(window.Tesseract),{once:true});existing.addEventListener("error",reject,{once:true});return;}
-      const script=document.createElement("script");script.src="https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js";script.async=true;script.dataset.aiImportTesseract="1";script.onload=()=>resolve(window.Tesseract);script.onerror=reject;document.head.appendChild(script);
-    });
-  }
-  return aiImportTesseractPromise;
+  if(!window.LernappTesseract)throw new Error("OCR ist nicht verfügbar.");
+  return window.LernappTesseract();
 }
 
 async function aiImportExtractPDF(file){
@@ -56,8 +48,55 @@ async function aiImportExtractPDF(file){
   return pages;
 }
 
+const AI_IMPORT_IMAGE_MIME=new Set(["image/jpeg","image/png","image/webp","image/heic","image/heif"]);
+const AI_IMPORT_IMAGE_EXT=/\.(jpe?g|png|webp|heic|heif)$/i;
+const AI_IMPORT_MAX_EDGE=1600;
+
+function aiImportIsImage(file){
+  return AI_IMPORT_IMAGE_MIME.has(String(file.type||"").toLowerCase())||AI_IMPORT_IMAGE_EXT.test(file.name||"");
+}
+
+async function aiImportFileToBase64(file){
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  let binary="";
+  for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
+  return btoa(binary);
+}
+
+// Verkleinern spart Kontingent und hält die Anfrage unter dem Grössenlimit des Proxys.
+// Schlägt das Dekodieren fehl (z. B. HEIC ausserhalb von Safari), gehen die Originalbytes raus.
+async function aiImportDownscaleImage(file){
+  const declared=String(file.type||"").toLowerCase();
+  try{
+    const bitmap=await createImageBitmap(file);
+    const scale=Math.min(1,AI_IMPORT_MAX_EDGE/Math.max(bitmap.width,bitmap.height));
+    const width=Math.max(1,Math.round(bitmap.width*scale));
+    const height=Math.max(1,Math.round(bitmap.height*scale));
+    const canvas=document.createElement("canvas");
+    canvas.width=width;canvas.height=height;
+    canvas.getContext("2d",{alpha:false}).drawImage(bitmap,0,0,width,height);
+    bitmap.close?.();
+    const dataUrl=canvas.toDataURL("image/jpeg",0.85);
+    canvas.width=1;canvas.height=1;
+    return {imageBase64:dataUrl.replace(/^data:[^,]*,/,""),mimeType:"image/jpeg"};
+  }catch{
+    return {imageBase64:await aiImportFileToBase64(file),mimeType:AI_IMPORT_IMAGE_MIME.has(declared)?declared:"image/jpeg"};
+  }
+}
+
+async function aiImportExtractImage(file){
+  if(!window.AIService)throw new Error("AIService ist nicht verfügbar.");
+  aiImportToast("Bild wird analysiert …");
+  const {imageBase64,mimeType}=await aiImportDownscaleImage(file);
+  const result=await window.AIService.analyzeImage({imageBase64,mimeType});
+  const text=String(result?.text||"").replace(/\s+/g," ").trim();
+  if(!text)throw new Error("Aus dem Bild konnte kein lernrelevanter Inhalt gelesen werden.");
+  return [{page:1,text,extraction:result?.provider==="CLOUD"?"AI_VISION":"OCR",imageKind:result?.kind||"OTHER"}];
+}
+
 async function aiImportExtractFile(file){
   if(file.type==="application/pdf"||file.name.toLowerCase().endsWith(".pdf"))return aiImportExtractPDF(file);
+  if(aiImportIsImage(file))return aiImportExtractImage(file);
   const text=await file.text();
   const paras=text.split(/\n{2,}/).map(x=>x.trim()).filter(Boolean),pages=[];
   for(let i=0;i<paras.length;i+=8)pages.push({page:pages.length+1,text:paras.slice(i,i+8).join("\n\n"),extraction:"TEXT"});

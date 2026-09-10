@@ -1186,7 +1186,7 @@ async function renderProfile() {
     </section>
     <section class="card">
       <h2>Wichtige Grenze</h2>
-      <p class="small muted">PDF-Textextraktion nutzt PDF.js; reine Scan-Seiten werden automatisch mit Tesseract.js OCR (Deutsch + Englisch) verarbeitet. Reviews verwenden echtes FSRS 6 mit 21 Parametern. Die lokale Antwortbewertung bleibt bewusst konservativ und ist keine semantische KI.</p>
+      <p class="small muted">PDF-Textextraktion nutzt PDF.js; reine Scan-Seiten werden automatisch mit Tesseract.js OCR (Deutsch + Englisch) verarbeitet. Bilder von Mitschriften, Folien und Skizzen werden im CLOUD-Modus mit Bildverstehen ausgewertet, im LOCAL-Modus per OCR. Reviews verwenden echtes FSRS 6 mit 21 Parametern. Die lokale Antwortbewertung bleibt bewusst konservativ und ist keine semantische KI.</p>
     </section>`;
   $("#save-settings").onclick=async()=>{
     settings.dailyMinutes=Math.max(5,Math.min(240,Number($("#daily-minutes").value)||30));
