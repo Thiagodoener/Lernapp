@@ -234,21 +234,7 @@ if(tutorModalContent){
   }).observe(tutorModalContent,{childList:true,subtree:false});
 }
 
-const tutorStyle=document.createElement("style");
-tutorStyle.textContent=`
-.tutor-ai-section{margin-top:10px}
-.tutor-messages{display:grid;gap:8px;max-height:320px;overflow:auto;margin:10px 0}
-.tutor-message{padding:11px 12px;border-radius:13px;white-space:pre-wrap;line-height:1.45}
-.tutor-message.user{background:var(--accent);color:var(--card);margin-left:12%}
-.tutor-message.assistant{background:var(--soft);margin-right:5%}
-.tutor-message.user .muted{color:inherit;opacity:.72}
-#tutor-input{min-height:90px;margin:4px 0 8px}
-.tutor-check{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
-.tutor-check select{width:100%;margin:4px 0 10px}
-.tutor-check textarea{min-height:90px;margin:4px 0 8px}
-.tutor-check-question{background:var(--soft);padding:11px 12px;border-radius:13px;margin:0 0 10px}
-#tutor-check-result:not(:empty){margin-top:12px}
-`;
-document.head.appendChild(tutorStyle);
+// Die Gestaltung liegt zentral in styles.css. Ein eigener style-Block hier
+// wuerde das Design-System ueberschreiben, weil er spaeter in die Kaskade faellt.
 
 window.LernappTutorAI={ask:tutorAsk,contextForGoal:async goalId=>{const goal=await tutorGet("goals",goalId);return goal?tutorContext(goal):"";}};

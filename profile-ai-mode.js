@@ -62,16 +62,8 @@ async function injectAIModeCard(){
   return true;
 }
 
-const aiStyle=document.createElement("style");
-aiStyle.textContent=`
-.ai-mode-segmented{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}
-.ai-mode-segmented button{min-height:44px;border-radius:12px}
-.ai-mode-segmented button.active{background:#111827;color:#fff}
-.ai-mode-grid{display:grid;gap:8px;margin-top:12px}
-.ai-mode-grid>div{display:grid;gap:2px;padding:10px 12px;border:1px solid rgba(148,163,184,.25);border-radius:12px}
-.ai-mode-grid span{font-size:.88rem;opacity:.72}
-`;
-document.head.appendChild(aiStyle);
+// Die Gestaltung liegt zentral in styles.css. Ein eigener style-Block hier
+// wuerde das Design-System ueberschreiben, weil er spaeter in die Kaskade faellt.
 
 document.addEventListener("click",event=>{
   if(event.target.closest?.('[data-tab="profile"]'))setTimeout(()=>injectAIModeCard(),0);

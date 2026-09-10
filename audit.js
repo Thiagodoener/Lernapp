@@ -345,13 +345,8 @@ async function injectAuditCard(){
   return true;
 }
 
-const auditStyle=document.createElement("style");
-auditStyle.textContent=`
-.audit-items{margin:8px 0 0;padding-left:18px;display:grid;gap:3px}
-.audit-items li{font-size:.85rem;color:var(--muted);overflow-wrap:anywhere}
-#audit-output:not(:empty){margin-top:14px}
-`;
-document.head.appendChild(auditStyle);
+// Die Gestaltung liegt zentral in styles.css. Ein eigener style-Block hier
+// wuerde das Design-System ueberschreiben, weil er spaeter in die Kaskade faellt.
 
 document.addEventListener("click",event=>{
   if(event.target.closest?.('[data-tab="profile"]'))setTimeout(()=>injectAuditCard().catch(()=>{}),0);
