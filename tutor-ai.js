@@ -77,6 +77,76 @@ async function tutorAsk(goalId,message,section){
   return assistantMessage;
 }
 
+const TUTOR_DIMENSIONS=[
+  ["RECALL","Abruf"],
+  ["UNDERSTANDING","Verständnis"],
+  ["APPLICATION","Anwendung"],
+  ["TRANSFER","Transfer"]
+];
+
+// Die Frage wird lokal aus dem Lernziel gebildet. Ein zusätzlicher KI-Aufruf
+// nur zum Formulieren würde Kontingent kosten, ohne fachlich mehr zu leisten.
+function tutorCheckPrompt(goal,dimension){
+  const statement=goal.statement||"";
+  if(dimension==="RECALL")return `Gib die Kernaussage aktiv wieder, ohne nachzusehen: ${statement}`;
+  if(dimension==="APPLICATION")return `Wie würdest du dieses Wissen praktisch anwenden? ${statement}`;
+  if(dimension==="TRANSFER")return `Übertrage das Prinzip auf eine neue Situation: ${statement}`;
+  return `Erkläre in eigenen Worten: ${statement}`;
+}
+
+function tutorSpeechSupported(){return Boolean(window.SpeechRecognition||window.webkitSpeechRecognition);}
+
+function tutorStartSpeech(textarea){
+  const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!Recognition){tutorToast("Spracherkennung wird hier nicht unterstützt. Bitte tippen.");return;}
+  const recognition=new Recognition();
+  recognition.lang="de-DE";recognition.interimResults=true;recognition.continuous=true;
+  let finalText=textarea.value.trim();
+  recognition.onresult=event=>{
+    let interim="";
+    for(let i=event.resultIndex;i<event.results.length;i++){
+      const transcript=event.results[i][0].transcript;
+      if(event.results[i].isFinal)finalText+=(finalText?" ":"")+transcript.trim();
+      else interim+=transcript;
+    }
+    textarea.value=`${finalText}${interim?" "+interim:""}`.trim();
+  };
+  recognition.onerror=()=>tutorToast("Spracherkennung beendet. Texteingabe bleibt verfügbar.");
+  recognition.start();
+  tutorToast("Sprich jetzt deine Antwort.");
+}
+
+async function tutorRunCheck(goalId,dimension,answer,section){
+  if(!window.LernappFreeAnswerAI?.evaluateAndPersist)throw new Error("Die Bewertungspipeline ist nicht verfügbar.");
+  const goal=await tutorGet("goals",goalId);
+  if(!goal)throw new Error("Lernziel wurde nicht gefunden.");
+  const thread=await tutorThread(goalId);
+  // Hat der Tutor zu diesem Lernziel bereits erklärt, ist der Abruf nicht mehr
+  // unabhängig. Die Evidence zählt dann nur halb, statt Mastery zu überschätzen.
+  const tutorExplained=thread.messages.some(m=>m.role==="assistant");
+  const {result,mastery,evidence}=await window.LernappFreeAnswerAI.evaluateAndPersist({
+    goalId,
+    answer,
+    dimension,
+    question:tutorCheckPrompt(goal,dimension),
+    context:await tutorContext(goal),
+    source:"TUTOR_CHECK",
+    independentRecall:!tutorExplained,
+    metadata:{tutorMessageCount:thread.messages.length}
+  });
+  const output=section.querySelector("#tutor-check-result");
+  if(output){
+    const score=Math.round(Math.max(0,Math.min(1,Number(result?.score)||0))*100);
+    const recallNote=evidence.independentRecall
+      ? "Als unabhängiger Abruf gewertet."
+      : "Der Tutor hatte hier bereits erklärt, daher zählt diese Evidence nur halb.";
+    output.innerHTML=`<p><strong>${score}% · ${tutorEsc(result?.provider||"UNKNOWN")}</strong></p>
+      <p>${tutorEsc(result?.feedback||"Antwort wurde ausgewertet.")}</p>
+      <p class="small muted">Mastery: ${tutorEsc(mastery.status)} · ${tutorEsc(recallNote)}</p>`;
+  }
+  return mastery;
+}
+
 async function tutorInject(goalId){
   const modal=document.querySelector("#modal");
   const box=document.querySelector("#modal-content");
@@ -98,6 +168,19 @@ async function tutorInject(goalId){
     <div id="tutor-messages" class="tutor-messages"></div>
     <textarea id="tutor-input" placeholder="Zum Beispiel: Erkläre mir den Zusammenhang einfacher …"></textarea>
     <button type="button" class="primary full" id="tutor-send">Tutor fragen</button>
+    <div class="tutor-check">
+      <h3>Prüf mich</h3>
+      <p class="small muted">Eine echte Lernkontrolle: Die Antwort läuft durch dieselbe Bewertung wie Selbsttest und Prüfung und aktualisiert Mastery, Wissenslücken und Tagesplan.</p>
+      <label class="small muted" for="tutor-check-dimension">Wissensdimension</label>
+      <select id="tutor-check-dimension">
+        ${TUTOR_DIMENSIONS.map(([value,label])=>`<option value="${value}"${value==="UNDERSTANDING"?" selected":""}>${label}</option>`).join("")}
+      </select>
+      <p class="tutor-check-question" id="tutor-check-question"></p>
+      <textarea id="tutor-check-answer" placeholder="Deine Antwort …"></textarea>
+      ${tutorSpeechSupported()?'<button type="button" class="secondary full" id="tutor-check-speech">🎙 Antwort sprechen</button>':'<p class="small muted">Spracherkennung ist hier nicht verfügbar; Texteingabe funktioniert immer.</p>'}
+      <button type="button" class="primary full" id="tutor-check-submit">Antwort bewerten</button>
+      <div id="tutor-check-result"></div>
+    </div>
   `;
   box.appendChild(section);
   tutorRenderMessages(section,thread);
@@ -111,6 +194,25 @@ async function tutorInject(goalId){
     catch(error){tutorToast(error.message||"Tutor-Antwort fehlgeschlagen.");}
     finally{send.disabled=false;send.textContent=old;}
   };
+  const dimensionSelect=section.querySelector("#tutor-check-dimension");
+  const questionBox=section.querySelector("#tutor-check-question");
+  const checkAnswer=section.querySelector("#tutor-check-answer");
+  const showQuestion=()=>{questionBox.textContent=tutorCheckPrompt(goal,dimensionSelect.value);};
+  showQuestion();
+  dimensionSelect.onchange=showQuestion;
+  section.querySelector("#tutor-check-speech")?.addEventListener("click",()=>tutorStartSpeech(checkAnswer));
+  const checkSubmit=section.querySelector("#tutor-check-submit");
+  checkSubmit.onclick=async()=>{
+    const answer=checkAnswer.value.trim();
+    if(!answer){tutorToast("Bitte beantworte die Frage zuerst.");return;}
+    checkSubmit.disabled=true;const label=checkSubmit.textContent;checkSubmit.textContent="Wird bewertet …";
+    try{
+      const mastery=await tutorRunCheck(goalId,dimensionSelect.value,answer,section);
+      tutorToast(`Bewertet · Mastery ${mastery.status}`);
+    }catch(error){tutorToast(error.message||"Bewertung fehlgeschlagen.");}
+    finally{checkSubmit.disabled=false;checkSubmit.textContent=label;}
+  };
+
   section.querySelector("#tutor-clear").onclick=async()=>{
     await tutorDelete("settings",`tutor:${goalId}`).catch(()=>{});
     tutorRenderMessages(section,{messages:[]});
@@ -141,6 +243,11 @@ tutorStyle.textContent=`
 .tutor-message.assistant{background:var(--soft);margin-right:5%}
 .tutor-message.user .muted{color:inherit;opacity:.72}
 #tutor-input{min-height:90px;margin:4px 0 8px}
+.tutor-check{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.tutor-check select{width:100%;margin:4px 0 10px}
+.tutor-check textarea{min-height:90px;margin:4px 0 8px}
+.tutor-check-question{background:var(--soft);padding:11px 12px;border-radius:13px;margin:0 0 10px}
+#tutor-check-result:not(:empty){margin-top:12px}
 `;
 document.head.appendChild(tutorStyle);
 

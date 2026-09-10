@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.20 — 10.09.2026
+## Version 3.21 — 10.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -420,9 +420,15 @@ Jedes Lernziel kann einen Tutorbereich besitzen.
 
 **Status:** implementiert.
 
-### SHOULD
+### Prüf mich
 
-„Prüf mich“ aus dem Tutor heraus soll eine echte Assessment-Aktivität starten, deren Ergebnis über die normale Evidence-Pipeline verarbeitet wird.
+Aus dem Tutor heraus lässt sich eine echte Lernkontrolle starten. Sie läuft über dieselbe Bewertungspipeline wie Selbsttest und Prüfungssimulation und aktualisiert Mastery, Wissenslücken und Tagesplan.
+
+- Die Wissensdimension ist wählbar; die Frage wird deterministisch aus dem Lernziel gebildet, damit kein zusätzlicher KI-Aufruf nur zum Formulieren nötig wird.
+- Hat der Tutor zu diesem Lernziel im laufenden Verlauf bereits geantwortet, ist der Abruf nach Kapitel 32 nicht mehr unabhängig. Die Evidence wird dann mit halbem Gewicht verrechnet, statt Mastery zu überschätzen, und die App weist das im Ergebnis ausdrücklich aus.
+- Spracheingabe ist als Progressive Enhancement verfügbar, Texteingabe bleibt immer nutzbar.
+
+**Status:** implementiert.
 
 ## 18. Sprache / mündliches Erklären
 
@@ -611,6 +617,12 @@ Unterstützte Tasks:
 
 Textaufgaben sind im kostenlosen Kontingent für den Einzelbetrieb in der Regel ausreichend abgedeckt. `analyzeImage` verbraucht pro Bild deutlich mehr Kontingent als eine Textanfrage. Werden Minuten- oder Tagesgrenzen erreicht, bleibt LOCAL der kostenfreie Fallback.
 
+### Nutzungsprotokoll und Tageslimit
+
+Jede an den Proxy gesendete Anfrage wird lokal protokolliert: Datum, Aufgabe und ob sie erfolgreich war. Gezählt werden Anfragen, nicht Aufgaben, weil eine Wiederholung nach Drosselung ebenfalls Kontingent verbraucht. LOCAL-Verarbeitung erscheint nicht im Protokoll, weil sie nichts verbraucht.
+
+Ein optionales Tageslimit begrenzt die Cloud-Anfragen. Ist es erreicht, wechselt AUTO auf LOCAL, statt einen Fehler zu erzeugen; im Modus CLOUD nennt die App das Limit als Grund. Das Protokoll bleibt lokal und wird nicht übertragen.
+
 Gedrosselte Anfragen dürfen einen laufenden Import nicht abbrechen. Der Proxy reicht die Statuscodes 429 und 503 samt `Retry-After` an die PWA durch, statt sie als endgültigen Fehler zu verpacken. Die PWA wiederholt solche Anfragen bis zu viermal mit wachsendem Abstand und meldet die Wartezeit sichtbar, damit die Pause nicht wie ein hängender Import wirkt. Alle übrigen Fehler bleiben endgültig und werden nicht wiederholt. Videoanalyse ist bewusst nicht Teil dieser Version, weil sie mit kostenfreiem Betrieb nicht verlässlich vereinbar ist.
 
 ## 27. UI/UX-Anforderungen
@@ -783,7 +795,7 @@ Nach größeren Projektphasen: Master Spec aktualisieren, Changelog ergänzen, S
 | Wiederholung bei Kontingent-Drosselung | IMPLEMENTIERT |
 | Prüfungssimulation | IMPLEMENTIERT |
 | Tutor | IMPLEMENTIERT |
-| Tutor „Prüf mich“ | OFFEN/SHOULD |
+| Tutor „Prüf mich“ | IMPLEMENTIERT |
 | Speech | IMPLEMENTIERT als Progressive Enhancement, Gerätetest offen |
 | Analytics | IMPLEMENTIERT, Vollständigkeitsaudit offen |
 | Fortschrittsverlauf über die Zeit | IMPLEMENTIERT |
@@ -794,8 +806,8 @@ Nach größeren Projektphasen: Master Spec aktualisieren, Changelog ergänzen, S
 | LOCAL/AUTO/CLOUD | IMPLEMENTIERT |
 | Cloud-Proxy-Code | IMPLEMENTIERT |
 | Cloud-Proxy live | OFFEN |
-| AI-Kosten-/Nutzungslimit | OFFEN |
-| AI-Nutzungsprotokoll | OFFEN |
+| AI-Kosten-/Nutzungslimit | IMPLEMENTIERT |
+| AI-Nutzungsprotokoll | IMPLEMENTIERT |
 | Knowledge Map | OPTIONAL/OFFEN |
 | vollständiger iPhone/iPad Endtest | OFFEN |
 
@@ -824,21 +836,31 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 19. LOCAL/AUTO/CLOUD-Modi testen.
 20. CLOUD nach Proxy-Deployment für alle fünf AIService-Aufgaben testen.
 
-## 36. Offene Prioritäten ab Version 3.20
+## 36. Offene Prioritäten ab Version 3.21
 
 1. Cloudflare Worker tatsächlich deployen, `GEMINI_API_KEY`/`GEMINI_MODEL`/Origin setzen.
 2. Cloud-Verbindung auf echtem iPhone testen.
 3. Alle sechs CLOUD-AIService-Funktionen E2E testen, insbesondere `analyzeImage` mit einer echten handschriftlichen Mitschrift.
-4. Tutor „Prüf mich“ an die Evidence-Pipeline anbinden.
-5. AI-Kosten-/Nutzungslimit und Nutzungsprotokoll ergänzen.
-6. Highlights inhaltlich gegen reale Studienunterlagen prüfen.
-7. Erweiterte Gamification bewerten, soweit sie das Lernen stützt.
+4. Highlights inhaltlich gegen reale Studienunterlagen prüfen.
+5. Audits aus Kapitel 33 als ausführbaren Selbstcheck in der App bereitstellen.
+6. Erweiterte Gamification bewerten, soweit sie das Lernen stützt.
+7. Knowledge Map bewerten.
 8. vollständigen iPhone/iPad-Abnahmetest durchführen.
 9. danach Release Candidate der persönlichen PWA erstellen.
 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.21
+
+- Tutor-„Pruef mich" ergaenzt: echte Lernkontrolle ueber die gemeinsame Bewertungspipeline
+- Evidence aus dem Tutor zaehlt nur halb, wenn der Tutor zuvor bereits erklaert hat, und die App weist das aus
+- evaluateAndPersist nimmt independentRecall jetzt als ausdruecklichen Parameter statt es fest auf true zu setzen
+- KI-Nutzungsprotokoll ergaenzt: Anfragen pro Tag und Aufgabe, im Profil einsehbar
+- optionales Tageslimit fuer Cloud-Anfragen; bei Erreichen faellt AUTO auf LOCAL zurueck
+- CLOUD nennt bei Nichtverfuegbarkeit den tatsaechlichen Grund statt einer pauschalen Meldung
+- Mehrfacheinfuegung der Profilkarten behoben: Karten werden vor dem ersten await eingehaengt
 
 ## Changelog 3.20
 

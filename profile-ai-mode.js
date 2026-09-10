@@ -15,19 +15,19 @@ async function injectAIModeCard(){
   if(!content||!profileButton?.classList.contains("active"))return false;
   if(content.querySelector("#ai-mode-card"))return true;
 
-  const mode=await window.AIService.getMode();
-  const status=await window.AIService.status();
+  // Die Karte wird vor dem ersten await eingehängt. Sonst kämen zwei parallele
+  // Aufrufe beide an der Prüfung oben vorbei und die Karte entstünde mehrfach.
   const card=document.createElement("section");
   card.id="ai-mode-card";
   card.className="card";
   card.innerHTML=`
     <div class="eyebrow">KI-BETRIEBSMODUS</div>
-    <h2>${aiModeLabel(mode)}</h2>
-    <p class="small muted" id="ai-mode-description">${aiModeDescription(mode,status)}</p>
+    <h2>${aiModeLabel("AUTO")}</h2>
+    <p class="small muted" id="ai-mode-description">Wird geladen …</p>
     <div class="segmented ai-mode-segmented" role="group" aria-label="KI-Betriebsmodus">
-      <button type="button" data-ai-mode="AUTO" class="${mode==="AUTO"?"active":""}">AUTO</button>
-      <button type="button" data-ai-mode="LOCAL" class="${mode==="LOCAL"?"active":""}">LOCAL</button>
-      <button type="button" data-ai-mode="CLOUD" class="${mode==="CLOUD"?"active":""}">CLOUD</button>
+      <button type="button" data-ai-mode="AUTO">AUTO</button>
+      <button type="button" data-ai-mode="LOCAL">LOCAL</button>
+      <button type="button" data-ai-mode="CLOUD">CLOUD</button>
     </div>
     <div class="ai-mode-grid">
       <div><strong>AUTO</strong><span>Standard. Wählt automatisch die beste verfügbare Option.</span></div>
@@ -37,6 +37,12 @@ async function injectAIModeCard(){
     <p class="small muted">API-Schlüssel werden niemals im Browser gespeichert. Eine spätere Cloud-Anbindung läuft über einen sicheren Backend-Endpunkt.</p>
   `;
   content.prepend(card);
+
+  const mode=await window.AIService.getMode();
+  const status=await window.AIService.status();
+  card.querySelector("h2").textContent=aiModeLabel(mode);
+  card.querySelector("#ai-mode-description").textContent=aiModeDescription(mode,status);
+  card.querySelectorAll("[data-ai-mode]").forEach(b=>b.classList.toggle("active",b.dataset.aiMode===mode));
 
   card.querySelectorAll("[data-ai-mode]").forEach(button=>{
     button.onclick=async()=>{

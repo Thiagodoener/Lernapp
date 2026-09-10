@@ -55,7 +55,11 @@ async function freeAIInvalidateTodayPlan(moduleId){
   for(const p of plans.filter(p=>p.date===key))await freeAIDelete("plans",p.id).catch(()=>{});
 }
 
-async function freeAIEvaluateAndPersist({goalId,answer,dimension="UNDERSTANDING",question="",context="",source="SELF_TEST",metadata={}}={}){
+// independentRecall darf nur dann true bleiben, wenn der Lernende die Antwort
+// nicht unmittelbar vorher angezeigt bekommen hat. Spec Kap. 32: Antwort
+// anzeigen ist kein unabhaengiger Abruf. Die Mastery-Gewichtung halbiert solche
+// Evidence, statt sie zu verwerfen.
+async function freeAIEvaluateAndPersist({goalId,answer,dimension="UNDERSTANDING",question="",context="",source="SELF_TEST",independentRecall=true,metadata={}}={}){
   if(!window.AIService)throw new Error("AIService ist nicht verfügbar.");
   const goal=await freeAIGet("goals",goalId);
   if(!goal)throw new Error("Lernziel wurde nicht gefunden.");
@@ -63,7 +67,7 @@ async function freeAIEvaluateAndPersist({goalId,answer,dimension="UNDERSTANDING"
   const score=freeAIClamp(result?.score);
   const confidence=freeAIClamp(result?.confidence??.35);
   const mode=await window.AIService.getMode();
-  const evidence={id:freeAIUid(),goalId:goal.id,moduleId:goal.moduleId,dimension,score,confidence,independentRecall:true,createdAt:freeAINow(),evaluationProvider:result?.provider||"UNKNOWN",evaluationPolicy:result?.policy||mode,feedback:String(result?.feedback||""),source,...metadata};
+  const evidence={id:freeAIUid(),goalId:goal.id,moduleId:goal.moduleId,dimension,score,confidence,independentRecall:independentRecall!==false,createdAt:freeAINow(),evaluationProvider:result?.provider||"UNKNOWN",evaluationPolicy:result?.policy||mode,feedback:String(result?.feedback||""),source,...metadata};
   await freeAIPut("evidence",evidence);
   const mastery=await freeAIRecalcMastery(goal.id);
   await freeAIInvalidateTodayPlan(goal.moduleId);
