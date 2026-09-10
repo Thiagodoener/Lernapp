@@ -80,16 +80,8 @@ async function injectUsageCard(){
   return true;
 }
 
-const usageStyle=document.createElement("style");
-usageStyle.textContent=`
-#ai-usage-card input{width:100%;margin:4px 0 8px}
-.usage-bars{display:flex;align-items:flex-end;gap:6px;height:76px;margin:14px 0 6px}
-.usage-bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;gap:4px}
-.usage-bar-fill{width:100%;min-height:3px;background:var(--accent);border-radius:5px 5px 0 0}
-.usage-bar span{font-size:11px;color:var(--muted)}
-.usage-tasks{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
-`;
-document.head.appendChild(usageStyle);
+// Die Gestaltung liegt zentral in styles.css. Ein eigener style-Block hier
+// wuerde das Design-System ueberschreiben, weil er spaeter in die Kaskade faellt.
 
 document.addEventListener("click",event=>{
   if(event.target.closest?.('[data-tab="profile"]'))setTimeout(()=>injectUsageCard().catch(()=>{}),0);

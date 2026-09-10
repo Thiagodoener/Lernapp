@@ -240,15 +240,8 @@ async function injectSummarySection(documentId){
   return true;
 }
 
-const summaryStyle=document.createElement("style");
-summaryStyle.textContent=`
-.ai-summary-section{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
-.ai-summary-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
-.ai-summary-actions button.active{background:var(--accent);color:var(--card)}
-.ai-summary-answer{white-space:pre-wrap;margin-top:10px}
-@media (max-width:420px){.ai-summary-actions{grid-template-columns:1fr}}
-`;
-document.head.appendChild(summaryStyle);
+// Die Gestaltung liegt zentral in styles.css. Ein eigener style-Block hier
+// wuerde das Design-System ueberschreiben, weil er spaeter in die Kaskade faellt.
 
 document.addEventListener("click",event=>{
   const row=event.target.closest?.("[data-doc]");

@@ -19,7 +19,6 @@ const FSRS6_W = [
 ];
 
 let fsrsModulePromise = null;
-let tesseractPromise = null;
 
 async function getFSRSModule() {
   if (!fsrsModulePromise) {
@@ -93,40 +92,6 @@ async function scheduleFSRS(storedCard, rating) {
   };
 }
 
-async function loadScriptOnce(src, globalName) {
-  if (window[globalName]) return window[globalName];
-  const existing = document.querySelector(
-    `script[data-lib="${globalName}"]`
-  );
-  if (existing) {
-    await new Promise((resolve, reject) => {
-      existing.addEventListener("load", resolve, { once: true });
-      existing.addEventListener("error", reject, { once: true });
-    });
-    return window[globalName];
-  }
-  const script = document.createElement("script");
-  script.src = src;
-  script.async = true;
-  script.dataset.lib = globalName;
-  document.head.appendChild(script);
-  await new Promise((resolve, reject) => {
-    script.onload = resolve;
-    script.onerror = reject;
-  });
-  return window[globalName];
-}
-
-async function getTesseract() {
-  if (!tesseractPromise) {
-    tesseractPromise = loadScriptOnce(
-      "https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js",
-      "Tesseract"
-    );
-  }
-  return tesseractPromise;
-}
-
 function speechSupported() {
   return Boolean(
     window.SpeechRecognition
@@ -174,6 +139,8 @@ function startSpeechInto(textarea) {
 const $ = (sel) => document.querySelector(sel);
 const content = $("#content");
 const title = $("#screen-title");
+const titleInline = $("#screen-title-inline");
+const topbar = $("#topbar");
 const modal = $("#modal");
 const modalContent = $("#modal-content");
 
@@ -218,6 +185,16 @@ function showModal(html) {
 }
 function closeModal(){ modal.close(); }
 window.closeModal = closeModal;
+
+// Der grosse Titel weicht beim Scrollen dem kompakten Titel in der Leiste.
+let navCondensed = false;
+function syncNavBar(){
+  const condensed = window.scrollY > 12;
+  if (condensed === navCondensed) return;
+  navCondensed = condensed;
+  topbar.classList.toggle("condensed", condensed);
+}
+window.addEventListener("scroll", syncNavBar, {passive:true});
 
 function openDB() {
   return new Promise((resolve,reject) => {
@@ -299,154 +276,6 @@ function extractSentences(text) {
     .map(s=>s.trim())
     .filter(s=>s.length>=45 && s.length<=700);
 }
-function chunks(arr,n) {
-  const out=[];
-  for(let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n));
-  return out;
-}
-function dimensionFromIndex(i) {
-  return ["UNDERSTANDING","RECALL","APPLICATION","TRANSFER"][i%4];
-}
-
-async function extractPDF(file) {
-  const pdfjs = await import(
-    "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.mjs"
-  );
-  pdfjs.GlobalWorkerOptions.workerSrc =
-    "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.mjs";
-
-  const data = new Uint8Array(await file.arrayBuffer());
-  const pdf = await pdfjs.getDocument({ data }).promise;
-  const pages = [];
-  let ocrWorker = null;
-
-  try {
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const page = await pdf.getPage(p);
-      const tc = await page.getTextContent();
-      let text = tc.items
-        .map(x => x.str)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      let extraction = "PDF_TEXT";
-
-      if (text.length < 20) {
-        extraction = "OCR";
-        toast(`OCR · Seite ${p} von ${pdf.numPages}`);
-        const Tesseract = await getTesseract();
-        if (!ocrWorker) {
-          ocrWorker = await Tesseract.createWorker(
-            "deu+eng",
-            1,
-            {
-              logger: message => {
-                if (
-                  message.status === "recognizing text"
-                  && Number.isFinite(message.progress)
-                ) {
-                  document.documentElement.style.setProperty(
-                    "--ocr-progress",
-                    `${Math.round(message.progress * 100)}%`
-                  );
-                }
-              }
-            }
-          );
-        }
-        const viewport = page.getViewport({ scale: 1.8 });
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d", { alpha: false });
-        canvas.width = Math.ceil(viewport.width);
-        canvas.height = Math.ceil(viewport.height);
-        await page.render({
-          canvasContext: ctx,
-          viewport
-        }).promise;
-        const result = await ocrWorker.recognize(canvas);
-        text = String(result.data.text || "")
-          .replace(/\s+/g, " ")
-          .trim();
-        canvas.width = 1;
-        canvas.height = 1;
-      }
-
-      pages.push({
-        page: p,
-        text,
-        extraction
-      });
-    }
-  } finally {
-    if (ocrWorker) {
-      await ocrWorker.terminate();
-    }
-  }
-  return pages;
-}
-async function extractFile(file) {
-  if (file.type==="application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-    return extractPDF(file);
-  }
-  const text = await file.text();
-  const paras = text.split(/\n{2,}/).map(x=>x.trim()).filter(Boolean);
-  const grouped = chunks(paras,8);
-  return grouped.map((g,i)=>({page:i+1,text:g.join("\n\n")}));
-}
-async function importStudyFile(file) {
-  const module = await activeModule();
-  toast("Datei wird verarbeitet …");
-  const pages = await extractFile(file);
-  const usable = pages.filter(p=>p.text.trim().length>20);
-  if (!usable.length) throw new Error("Aus der Datei konnte kein Text extrahiert werden.");
-
-  const document = {
-    id:uid(), moduleId:module.id, title:file.name,
-    kind:file.name.split(".").pop()?.toUpperCase() || "TEXT",
-    pages:usable, createdAt:nowISO(), status:"READY"
-  };
-  await put("documents",document);
-
-  let goalIndex=0;
-  for (const page of usable) {
-    const candidates = extractSentences(page.text).slice(0,3);
-    for (const sentence of candidates) {
-      const goal = {
-        id:uid(), moduleId:module.id, documentId:document.id,
-        statement:`Erkläre: ${sentence}`,
-        answerKey:sentence, sourcePage:page.page,
-        sourceSnippet:sentence, priority:0.65,
-        examRelevance:0.6, createdAt:nowISO()
-      };
-      await put("goals",goal);
-
-      const fsrsCard = await newFSRSState();
-      const card = {
-        id:uid(), moduleId:module.id, goalId:goal.id,
-        prompt:`Was ist die Kernaussage? ${sentence.slice(0,120)}${sentence.length>120?"…":""}`,
-        answer:sentence,
-        dueAt:fsrsCard.due,
-        fsrsCard,
-        reviewCount:0,
-        lapseCount:0,
-        createdAt:nowISO(), manual:false
-      };
-      await put("flashcards",card);
-
-      await put("mastery",{
-        id:goal.id, goalId:goal.id, moduleId:module.id,
-        recall:null, understanding:null, application:null, transfer:null,
-        confidence:0, evidenceCount:0, status:"NOT_ASSESSED", updatedAt:nowISO()
-      });
-      goalIndex++;
-    }
-  }
-  await generatePlan();
-  toast(`${goalIndex} Lernziele erstellt`);
-  return document;
-}
-
 async function addEvidence(goalId, dimension, score, confidence, independentRecall=true) {
   const goal = await get("goals",goalId);
   if (!goal) return;
@@ -1031,6 +860,10 @@ async function render() {
   document.querySelectorAll(".tabbar button").forEach(b=>b.classList.toggle("active",b.dataset.tab===state.tab));
   const names={today:"Heute",library:"Bibliothek",learn:"Lernen",progress:"Fortschritt",profile:"Profil"};
   title.textContent=names[state.tab];
+  titleInline.textContent=names[state.tab];
+  // Ein Tabwechsel beginnt oben, damit der grosse Titel sichtbar ist.
+  window.scrollTo(0,0);
+  syncNavBar();
   if(state.tab==="today") return renderToday();
   if(state.tab==="library") return renderLibrary();
   if(state.tab==="learn") return renderLearn();
@@ -1100,12 +933,14 @@ async function renderLibrary() {
       <h2>Material</h2>
       ${docs.length?docs.map(d=>`
         <div class="list-item clickable" data-doc="${d.id}">
-          <div class="row between"><div><h3>${esc(d.title)}</h3><div class="muted small">${d.pages.length} Seiten/Abschnitte · lokal gespeichert</div></div><span>›</span></div>
+          <div class="row between"><div><h3>${esc(d.title)}</h3><div class="muted small">${d.pages.length} Seiten · lokal gespeichert</div></div><span class="list-row-chevron" aria-hidden="true">›</span></div>
         </div>`).join(""):`<div class="empty">Noch kein Material. Importiere PDF, TXT oder Markdown.</div>`}
     </section>
     <section class="card">
       <h2>Lernziele</h2>
-      ${goals.slice(0,50).map(g=>`<div class="list-item clickable" data-open-goal="${g.id}"><strong>${esc(g.statement)}</strong><div class="source">Quelle · Seite ${g.sourcePage}</div></div>`).join("")}
+      ${goals.length
+        ? goals.slice(0,50).map(g=>`<div class="list-item clickable" data-open-goal="${g.id}"><div class="row between"><div><strong>${esc(g.statement)}</strong><div class="source">Seite ${g.sourcePage}</div></div><span class="list-row-chevron" aria-hidden="true">›</span></div></div>`).join("")
+        : `<div class="empty">Lernziele entstehen automatisch beim Import.</div>`}
     </section>`;
   $("#import-file").onclick=()=>$("#file-import").click();
   content.querySelectorAll("[data-doc]").forEach(el=>el.onclick=()=>openDocument(el.dataset.doc));
@@ -1115,22 +950,19 @@ async function renderLibrary() {
 async function openDocument(id) {
   const d=await get("documents",id);
   const sentences=d.pages.flatMap(p=>extractSentences(p.text).slice(0,3).map(text=>({text,page:p.page})));
+  const pages=d.pages?.length||0;
+  const relevant=(d.pages||[]).filter(p=>p.relevant!==false).length;
+  // Die Zusammenfassung liefert summaries-ai.js weiter unten im selben Sheet.
+  // Hier stehen nur die Quellenauszuege, damit nicht zwei Oberflaechen fuer
+  // dieselbe Aufgabe nebeneinander liegen.
   showModal(`
     <h2>${esc(d.title)}</h2>
-    <div class="pill-row">
-      <button type="button" class="secondary summary-level" data-level="3">Kurz</button>
-      <button type="button" class="secondary summary-level" data-level="6">Standard</button>
-      <button type="button" class="secondary summary-level" data-level="12">Detailliert</button>
-    </div>
-    <div id="summary-body"></div>
-    <hr>
+    <p class="small muted">${pages} Seiten · ${relevant} davon mit Lernstoff</p>
     <h3>Wichtige Inhalte</h3>
-    ${sentences.slice(0,12).map(x=>`<div class="highlight">${esc(x.text)}<div class="source">Quelle · Seite ${x.page}</div></div>`).join("")}
+    ${sentences.length
+      ? sentences.slice(0,12).map(x=>`<div class="highlight">${esc(x.text)}<div class="source">Seite ${x.page}</div></div>`).join("")
+      : `<div class="empty">Aus diesem Material konnten keine Auszüge gebildet werden.</div>`}
   `);
-  const body=$("#summary-body");
-  const draw=n=>body.innerHTML=sentences.slice(0,n).map(x=>`<p>${esc(x.text)}</p>`).join("");
-  draw(6);
-  modalContent.querySelectorAll(".summary-level").forEach(b=>b.onclick=()=>draw(Number(b.dataset.level)));
 }
 
 async function openGoal(id) {
@@ -1166,14 +998,9 @@ async function openGoal(id) {
     "click",
     ()=>startSpeechInto($("#self-answer"))
   );
-  $("#self-submit").onclick=async()=>{
-    const answer=$("#self-answer").value.trim();
-    if(!answer)return;
-    const score=scoreText(g.answerKey,answer);
-    await addEvidence(g.id,"UNDERSTANDING",score,.35,true);
-    $("#self-result").innerHTML=`<p><strong>Baseline-Score: ${Math.round(score*100)}%</strong></p><p class="small muted">Konservative lokale Textauswertung; keine semantische KI.</p>`;
-    await generatePlan();
-  };
+  // Die Auswertung von #self-submit uebernimmt free-answer-ai.js ueber die
+  // gemeinsame AIService-Pipeline. Eine zweite lokale Auswertung hier waere
+  // schwaecher und wuerde nur zufaellig gewinnen.
   $("#card-save").onclick=async()=>{
     const p=$("#card-prompt").value.trim(),a=$("#card-answer").value.trim();
     if(!p||!a)return;
@@ -1454,17 +1281,12 @@ async function renderProfile() {
 document.querySelectorAll(".tabbar button").forEach(b=>b.addEventListener("click",()=>{
   state.tab=b.dataset.tab; render();
 }));
-$("#file-import").addEventListener("change",async e=>{
-  const file=e.target.files?.[0]; if(!file)return;
-  try{ await importStudyFile(file); state.tab="library"; await render(); }
-  catch(err){ alert(`Import fehlgeschlagen: ${err.message}`); }
-  finally{e.target.value="";}
-});
 $("#backup-import").addEventListener("change",async e=>{
   const f=e.target.files?.[0]; if(!f)return;
   try{await importBackup(f)}catch(err){alert(err.message)}
   finally{e.target.value="";}
 });
+$("#modal-close").addEventListener("click",closeModal);
 modal.addEventListener("click",e=>{if(e.target===modal)closeModal()});
 
 window.addEventListener("beforeinstallprompt",e=>{

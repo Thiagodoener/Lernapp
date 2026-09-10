@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.22 — 10.09.2026
+## Version 3.23 — 10.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -649,6 +649,21 @@ Anforderungen:
 - Modus LOCAL/AUTO/CLOUD transparent
 - Provider-/Confidence-Information dort anzeigen, wo sie für Vertrauen relevant ist
 
+### Gestaltung nach den Human Interface Guidelines
+
+Die Oberfläche folgt den iOS-Gestaltungsregeln, damit sich die PWA auf dem Home-Bildschirm wie eine native App anfühlt:
+
+- **Farben** aus der iOS-Systempalette mit vollständigem Dark Mode. `color-scheme` ist deklariert, damit auch native Bedienelemente wie Datumsauswahl und Ankreuzfelder im dunklen Erscheinungsbild korrekt dargestellt werden. `theme-color` ist für hell und dunkel getrennt gesetzt.
+- **Typografie** nach der HIG-Skala: großer Titel 34 pt, Überschriften 20 bis 22 pt, Fließtext 17 pt, Fußnoten 13 pt, mit den zugehörigen Laufweiten.
+- **Navigationsleiste** mit großem Titel, der beim Scrollen dem kompakten Titel weicht, auf durchscheinendem Material.
+- **Listen** im Stil gruppierter Einschübe: abgerundete Gruppen, links eingerückte Haarlinien als Trenner, Chevron bei navigierenden Zeilen.
+- **Tab-Bar** mit Symbolen statt Textglyphen, eingefärbtem aktivem Eintrag und durchscheinendem Material.
+- **Sheets** statt zentrierter Dialoge: von unten einfahrend, mit Griff und abgerundeten oberen Ecken; ab Tablet-Breite wieder zentriert.
+- **Touchziele** mindestens 44 px, mit Druckrückmeldung statt Hover.
+- **Safe Areas** oben und unten werden überall berücksichtigt, ebenso `prefers-reduced-motion`.
+
+Die Gestaltung liegt vollständig in `styles.css`. Module dürfen keine eigenen `style`-Blöcke einhängen, weil diese später in der Kaskade landen und das Design-System stillschweigend überschreiben würden.
+
 ## 28. Offline/PWA
 
 Die persönliche Hauptversion ist als installierbare PWA ausgelegt:
@@ -830,6 +845,7 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | AI-Kosten-/Nutzungslimit | IMPLEMENTIERT |
 | AI-Nutzungsprotokoll | IMPLEMENTIERT |
 | Selbstcheck nach Kapitel 33 | IMPLEMENTIERT |
+| iOS-Gestaltung nach HIG | IMPLEMENTIERT |
 | Knowledge Map | OPTIONAL/OFFEN |
 | vollständiger iPhone/iPad Endtest | OFFEN |
 
@@ -872,6 +888,18 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.23
+
+- Oberflaeche vollstaendig auf die iOS-Gestaltungsregeln umgestellt: Systemfarben, HIG-Typografie, gruppierte Listen, grosser Titel mit Einklappen beim Scrollen, Tab-Bar mit Symbolen, Sheets statt zentrierter Dialoge
+- schwerer Dark-Mode-Fehler behoben: der Dialog behielt den weissen Standardhintergrund, wodurch dunkle Inhalte unlesbar wurden
+- color-scheme deklariert, damit native Bedienelemente im dunklen Erscheinungsbild stimmen; theme-color fuer hell und dunkel getrennt
+- doppelte Zusammenfassungs-Oberflaeche im Material-Sheet entfernt; die Zusammenfassung liefert allein summaries-ai.js
+- Dialog nutzt kein form method=dialog mehr, dadurch schliesst die Eingabetaste in Textfeldern nicht mehr das Sheet und verwirft die Eingabe
+- 189 Zeilen toter Importcode aus app.js entfernt, der die Pipeline aus import-ai.js duplizierte
+- toter lokaler Selbsttest-Pfad in openGoal entfernt; die Auswertung laeuft ausschliesslich ueber die AIService-Pipeline
+- style-Bloecke aus sechs Modulen entfernt, die das zentrale Design-System ueberschrieben haben
+- Abstand unter der Tab-Bar beruecksichtigt jetzt die Safe Area
 
 ## Changelog 3.22
 
