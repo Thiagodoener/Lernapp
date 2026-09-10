@@ -55,19 +55,23 @@ async function freeAIInvalidateTodayPlan(moduleId){
   for(const p of plans.filter(p=>p.date===key))await freeAIDelete("plans",p.id).catch(()=>{});
 }
 
-async function freeAIEvaluateSelfTest(goalId,answer){
+async function freeAIEvaluateAndPersist({goalId,answer,dimension="UNDERSTANDING",question="",context="",source="SELF_TEST",metadata={}}={}){
   if(!window.AIService)throw new Error("AIService ist nicht verfügbar.");
   const goal=await freeAIGet("goals",goalId);
   if(!goal)throw new Error("Lernziel wurde nicht gefunden.");
-  const result=await window.AIService.evaluateFreeAnswer({expected:goal.answerKey||goal.sourceSnippet||"",answer,context:goal.sourceSnippet||"",question:goal.statement||"",goalId});
+  const result=await window.AIService.evaluateFreeAnswer({expected:goal.answerKey||goal.sourceSnippet||"",answer,context:context||goal.sourceSnippet||"",question:question||goal.statement||"",goalId,dimension,source});
   const score=freeAIClamp(result?.score);
   const confidence=freeAIClamp(result?.confidence??.35);
   const mode=await window.AIService.getMode();
-  const evidence={id:freeAIUid(),goalId:goal.id,moduleId:goal.moduleId,dimension:"UNDERSTANDING",score,confidence,independentRecall:true,createdAt:freeAINow(),evaluationProvider:result?.provider||"UNKNOWN",evaluationPolicy:result?.policy||mode,feedback:String(result?.feedback||"")};
+  const evidence={id:freeAIUid(),goalId:goal.id,moduleId:goal.moduleId,dimension,score,confidence,independentRecall:true,createdAt:freeAINow(),evaluationProvider:result?.provider||"UNKNOWN",evaluationPolicy:result?.policy||mode,feedback:String(result?.feedback||""),source,...metadata};
   await freeAIPut("evidence",evidence);
   const mastery=await freeAIRecalcMastery(goal.id);
   await freeAIInvalidateTodayPlan(goal.moduleId);
-  return {result,evidence,mastery};
+  return {result,evidence,mastery,goal};
+}
+
+async function freeAIEvaluateSelfTest(goalId,answer){
+  return freeAIEvaluateAndPersist({goalId,answer,dimension:"UNDERSTANDING",source:"SELF_TEST"});
 }
 
 document.addEventListener("click",event=>{
@@ -95,4 +99,4 @@ document.addEventListener("click",async event=>{
   finally{button.disabled=false;button.textContent=old;}
 },true);
 
-window.LernappFreeAnswerAI={evaluateSelfTest:freeAIEvaluateSelfTest};
+window.LernappFreeAnswerAI={evaluateSelfTest:freeAIEvaluateSelfTest,evaluateAndPersist:freeAIEvaluateAndPersist,recalcMastery:freeAIRecalcMastery,invalidateTodayPlan:freeAIInvalidateTodayPlan};
