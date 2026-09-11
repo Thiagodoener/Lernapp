@@ -260,7 +260,7 @@ function auditBackup(data){
 }
 
 async function auditProviderParity(){
-  const required=["summarize","tutor","generateLearningGoals","generateFlashcards","evaluateFreeAnswer","analyzeImage"];
+  const required=["summarize","tutor","generateLearningGoals","generateFlashcards","evaluateFreeAnswer","analyzeImage","generateChoiceOptions"];
   if(!window.AIService)return finding("parity","LOCAL/AUTO/CLOUD-Parität","FAIL","AIService ist nicht verfügbar.");
   const missing=required.filter(name=>typeof window.AIService[name]!=="function");
   if(missing.length)return finding("parity","LOCAL/AUTO/CLOUD-Parität","FAIL",`Diese Aufgaben fehlen in der Abstraktion: ${missing.join(", ")}`,missing);

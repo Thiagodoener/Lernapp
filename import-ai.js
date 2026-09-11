@@ -9,8 +9,8 @@ function aiImportToast(message){const el=document.createElement("div");el.classN
 
 function aiImportOpenDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(AI_IMPORT_DB,AI_IMPORT_DB_VERSION);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
 async function aiImportAll(store){const db=await aiImportOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readonly"),req=tx.objectStore(store).getAll();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error);tx.oncomplete=()=>db.close();});}
-async function aiImportPut(store,value){const db=await aiImportOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readwrite");tx.objectStore(store).put(value);tx.oncomplete=()=>{db.close();resolve(value);};tx.onerror=()=>{db.close();reject(tx.error);};});}
-async function aiImportDelete(store,id){const db=await aiImportOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readwrite");tx.objectStore(store).delete(id);tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>{db.close();reject(tx.error);};});}
+async function aiImportPut(store,value){const db=await aiImportOpenDB();value={...value,updatedAt:new Date().toISOString()};return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readwrite");tx.objectStore(store).put(value);tx.oncomplete=()=>{db.close();resolve(value);};tx.onerror=()=>{db.close();reject(tx.error);};});}
+async function aiImportDelete(store,id){const db=await aiImportOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readwrite");tx.objectStore(store).delete(id);tx.oncomplete=()=>{db.close();window.LernappSync?.recordDeletion(store,[id]).catch(()=>{});resolve();};tx.onerror=()=>{db.close();reject(tx.error);};});}
 
 // Ohne diese Rückmeldung wirkt eine Drosselungspause wie ein eingefrorener Import.
 window.addEventListener("lernapp:cloud-throttled",event=>{

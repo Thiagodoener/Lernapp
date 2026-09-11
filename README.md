@@ -23,7 +23,9 @@ Kostenloser, offline-first Personal Mode für iPhone/iPad und moderne Browser.
 - Texteingabe als garantierter Fallback
 - Fortschrittsansicht
 - Lernstreak
+- Multiple-Choice-Quiz aus den vorhandenen Karteikarten
 - JSON Backup / Restore
+- optionaler Abgleich zwischen Geräten über den eigenen Cloud-Proxy
 
 ## Wichtige Grenzen
 

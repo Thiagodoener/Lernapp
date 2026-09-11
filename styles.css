@@ -547,6 +547,31 @@ dialog::backdrop{background:rgba(0,0,0,.4);backdrop-filter:blur(2px)}
 
 #ai-usage-card input,.tutor-check select,.tutor-check textarea,#tutor-input{margin:4px 0 10px}
 
+/* Antwortmoeglichkeiten tragen ganze Saetze und muessen deshalb umbrechen
+   duerfen, statt wie eine normale Schaltflaeche einzeilig zu bleiben. */
+.quiz-options{display:flex;flex-direction:column;gap:10px;margin:14px 0 4px}
+.quiz-option{
+  width:100%;
+  text-align:left;
+  background:var(--fill);
+  color:var(--text);
+  border:0;
+  border-radius:var(--radius);
+  padding:12px 16px;
+  min-height:44px;
+  font-size:15px;
+  line-height:1.35;
+  font-weight:500;
+  letter-spacing:-.01em;
+  transition:opacity .12s var(--ease),transform .12s var(--ease);
+}
+.quiz-option:active{opacity:.6;transform:scale(.985)}
+.quiz-option:disabled{opacity:1}
+.quiz-option.correct{background:var(--good-bg);color:var(--good);font-weight:600}
+.quiz-option.wrong{background:var(--danger-bg);color:var(--danger);font-weight:600}
+
+.sync-status{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+
 @media (max-width:420px){
   .ai-summary-actions{grid-template-columns:1fr}
 }

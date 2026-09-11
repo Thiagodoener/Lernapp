@@ -157,6 +157,33 @@ const localProvider={
     const score=localTokenScore(expected,answer);
     return {provider:"LOCAL",score,confidence:0.35,feedback:score>=0.7?"Wesentliche Inhalte sind enthalten.":score>=0.4?"Ein Teil der wesentlichen Inhalte ist enthalten; zentrale Begriffe oder Zusammenhänge fehlen noch.":"Es fehlen noch wichtige Begriffe oder Zusammenhänge."};
   },
+  // Ohne Cloud entstehen die falschen Antwortmoeglichkeiten aus den Antworten
+  // anderer Karten desselben Moduls. Das bleibt fachlich im Thema, waehrend frei
+  // erfundene Distraktoren lokal nur beliebig falsch waeren. Zu aehnliche
+  // Kandidaten fallen raus, damit keine zweite richtige Antwort entsteht.
+  async generateChoiceOptions({items=[],pool=[]}={}){
+    const candidates=pool.map(x=>String(x||"").trim()).filter(Boolean);
+    return {
+      provider:"LOCAL",
+      items:items.map(item=>{
+        const answer=String(item?.answer||"").trim();
+        const ranked=candidates
+          .filter(text=>text!==answer&&localTokenScore(answer,text)<0.6&&localTokenScore(text,answer)<0.6)
+          .map(text=>({text,gap:Math.abs(text.length-answer.length)}))
+          .sort((a,b)=>a.gap-b.gap);
+        const seen=new Set(),distractors=[];
+        for(const entry of ranked){
+          const key=entry.text.toLowerCase();
+          if(seen.has(key))continue;
+          seen.add(key);
+          distractors.push(entry.text);
+          if(distractors.length===3)break;
+        }
+        return {id:item?.id,distractors};
+      }),
+      confidence:0.3
+    };
+  },
   async analyzeImage({imageBase64="",mimeType=""}={}){
     const data=String(imageBase64).replace(/^data:[^,]*,/,"").trim();
     if(!data)throw new Error("Es wurde kein Bild übergeben.");
@@ -203,36 +230,42 @@ async function cloudUnavailableReason(){
   return null;
 }
 
+// Der Abgleich zwischen Geraeten laeuft ueber denselben Proxy, ist aber kein
+// Modellaufruf: er zaehlt nicht ins KI-Tageskontingent und wird von ihm auch
+// nicht blockiert.
+async function cloudRequest(task,payload,{countsAsAIUsage=true}={}){
+  const cfg=await cloudConfig();
+  if(!cfg.endpoint)throw new Error("Cloud-Verbindung ist noch nicht konfiguriert.");
+  if(!navigator.onLine)throw new Error("Cloud-Verbindung ist offline nicht verfügbar.");
+  const headers={"Content-Type":"application/json"};
+  if(cfg.accessToken)headers["X-Lernapp-Key"]=cfg.accessToken;
+  const request=JSON.stringify({task,payload});
+  // Das kostenlose Kontingent drosselt nach wenigen Anfragen pro Minute. Ohne
+  // Wiederholung würde ein umfangreicher Import mittendrin komplett scheitern.
+  for(let attempt=1;;attempt++){
+    const response=await fetch(cfg.endpoint,{method:"POST",headers,body:request});
+    let body=null;
+    try{body=await response.json();}catch{}
+    if(countsAsAIUsage)await recordCloudUsage(task,response.ok).catch(()=>{});
+    if(response.ok)return body;
+    if(!CLOUD_RETRY_STATUS.has(response.status)||attempt>=CLOUD_MAX_ATTEMPTS)throw new Error(body?.error||`Cloud-Anfrage fehlgeschlagen (${response.status})`);
+    const delay=cloudRetryDelay(attempt,response.headers.get("Retry-After"));
+    window.dispatchEvent(new CustomEvent("lernapp:cloud-throttled",{detail:{delayMs:delay,attempt,task}}));
+    await new Promise(resolve=>setTimeout(resolve,delay));
+  }
+}
+
 const cloudProvider={
   id:"CLOUD",
   async isAvailable(){return !(await cloudUnavailableReason());},
-  async call(task,payload){
-    const cfg=await cloudConfig();
-    if(!cfg.endpoint)throw new Error("Cloud-KI ist noch nicht konfiguriert.");
-    if(!navigator.onLine)throw new Error("Cloud-KI ist offline nicht verfügbar.");
-    const headers={"Content-Type":"application/json"};
-    if(cfg.accessToken)headers["X-Lernapp-Key"]=cfg.accessToken;
-    const request=JSON.stringify({task,payload});
-    // Das kostenlose Kontingent drosselt nach wenigen Anfragen pro Minute. Ohne
-    // Wiederholung würde ein umfangreicher Import mittendrin komplett scheitern.
-    for(let attempt=1;;attempt++){
-      const response=await fetch(cfg.endpoint,{method:"POST",headers,body:request});
-      let body=null;
-      try{body=await response.json();}catch{}
-      await recordCloudUsage(task,response.ok).catch(()=>{});
-      if(response.ok)return body;
-      if(!CLOUD_RETRY_STATUS.has(response.status)||attempt>=CLOUD_MAX_ATTEMPTS)throw new Error(body?.error||`Cloud-KI Fehler (${response.status})`);
-      const delay=cloudRetryDelay(attempt,response.headers.get("Retry-After"));
-      window.dispatchEvent(new CustomEvent("lernapp:cloud-throttled",{detail:{delayMs:delay,attempt,task}}));
-      await new Promise(resolve=>setTimeout(resolve,delay));
-    }
-  },
+  call(task,payload){return cloudRequest(task,payload);},
   summarize(payload){return this.call("summarize",payload);},
   tutor(payload){return this.call("tutor",payload);},
   generateLearningGoals(payload){return this.call("generateLearningGoals",payload);},
   generateFlashcards(payload){return this.call("generateFlashcards",payload);},
   evaluateFreeAnswer(payload){return this.call("evaluateFreeAnswer",payload);},
-  analyzeImage(payload){return this.call("analyzeImage",payload);}
+  analyzeImage(payload){return this.call("analyzeImage",payload);},
+  generateChoiceOptions(payload){return this.call("generateChoiceOptions",payload);}
 };
 
 async function selectedProvider(){
@@ -299,6 +332,23 @@ const AIService={
   generateLearningGoals(payload){return this.run("generateLearningGoals",payload);},
   generateFlashcards(payload){return this.run("generateFlashcards",payload);},
   analyzeImage(payload){return this.run("analyzeImage",payload);},
+  localChoiceOptions(payload){return localProvider.generateChoiceOptions(payload);},
+  syncPull(){return cloudRequest("syncPull",{},{countsAsAIUsage:false});},
+  syncPush(payload){return cloudRequest("syncPush",payload,{countsAsAIUsage:false});},
+  // Ein Quiz darf nicht daran scheitern, dass die Cloud gerade klemmt: der
+  // lokale Weg liefert dann schwaechere, aber brauchbare Antwortmoeglichkeiten.
+  async generateChoiceOptions(payload){
+    const mode=await this.getMode();
+    if(mode===AI_MODES.LOCAL)return localProvider.generateChoiceOptions(payload);
+    if(mode===AI_MODES.CLOUD){
+      const reason=await cloudUnavailableReason();
+      if(reason)throw new Error(reason);
+      return cloudProvider.generateChoiceOptions(payload);
+    }
+    if(!(await cloudProvider.isAvailable()))return localProvider.generateChoiceOptions(payload);
+    try{return await cloudProvider.generateChoiceOptions(payload);}
+    catch{return localProvider.generateChoiceOptions(payload);}
+  },
   async evaluateFreeAnswer(payload){
     const mode=await this.getMode();
     if(mode===AI_MODES.LOCAL)return localProvider.evaluateFreeAnswer(payload);

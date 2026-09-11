@@ -23,6 +23,7 @@ async function summaryGetDocument(id){
 
 async function summarySaveDocument(documentRecord){
   const db=await summaryOpenDB();
+  documentRecord={...documentRecord,updatedAt:new Date().toISOString()};
   return new Promise((resolve,reject)=>{
     const tx=db.transaction("documents","readwrite");
     tx.objectStore("documents").put(documentRecord);
