@@ -15,10 +15,9 @@ GEMINI_MODEL = "gemini-2.0-flash"
 
 # GEMINI_API_KEY und LERNAPP_ACCESS_KEY bleiben Secrets und stehen nie hier.
 
-# Geraetesynchronisation: ohne diese Bindung laufen alle KI-Aufgaben normal
-# weiter, nur der Abgleich zwischen Geraeten meldet, dass er nicht eingerichtet
-# ist. Zum Aktivieren einen KV-Namespace anlegen und dessen ID hier eintragen:
-#   npx wrangler kv namespace create LERNAPP_SYNC
-# [[kv_namespaces]]
-# binding = "LERNAPP_SYNC"
-# id = "<ID des angelegten KV-Namespace>"
+# Geraetesynchronisation: ohne diese Bindung liefen alle KI-Aufgaben normal
+# weiter, nur der Abgleich zwischen Geraeten haette gemeldet, dass er nicht
+# eingerichtet ist. Namespace "lernapp-sync" ist angelegt und hier gebunden.
+[[kv_namespaces]]
+binding = "LERNAPP_SYNC"
+id = "1ee3012209124e35b0a0ad55b4570640"
