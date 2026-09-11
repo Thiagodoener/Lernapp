@@ -225,7 +225,7 @@ async function auditOfflineCache(){
   ];
   const missing=[];
   for(const url of expected){
-    if(!(await caches.match(url)))missing.push(url.replace(location.origin+"/",""));
+    if(!(await caches.match(url,{ignoreSearch:true})))missing.push(url.replace(location.origin+"/",""));
   }
   return finding("cache","Offline-Cache",missing.length?"WARN":"OK",
     missing.length

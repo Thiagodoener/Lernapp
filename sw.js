@@ -1,4 +1,4 @@
-const VERSION = "v22";
+const VERSION = "v23";
 const CACHE = `lernapp-pwa-${VERSION}`;
 
 // Diese Dateien aendern sich mit jeder Korrektur.
@@ -81,7 +81,10 @@ self.addEventListener("fetch", event => {
       if (response.ok) (await caches.open(CACHE)).put(request, response.clone()).catch(() => {});
       return response;
     } catch (error) {
-      const cached = await caches.match(request);
+      // ignoreSearch: index.html fordert die Dateien mit Fassungskennung an,
+      // abgelegt sind sie ohne. Ohne diese Nachsicht faende der Offline-Start
+      // keine einzige Datei wieder.
+      const cached = await caches.match(request, {ignoreSearch: true});
       if (cached) return cached;
       if (request.mode === "navigate") {
         const shell = await caches.match("./index.html");

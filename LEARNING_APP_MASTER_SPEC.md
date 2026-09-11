@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.28 — 11.09.2026
+## Version 3.29 — 11.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -150,6 +150,8 @@ Der Service Worker lieferte jede Datei zuerst aus dem Cache. Eine einmal install
 - Bibliotheken unter `vendor/`: zuerst aus dem Cache, da sie an ihre Version gebunden sind.
 - Fremde Herkunft wird nicht abgefangen, damit ein zwischengespeicherter Fehlschlag nicht dauerhaft wie eine gueltige Antwort wirkt.
 - Das Profil zeigt die installierte Fassung und bietet eine Schaltflaeche, die gezielt nach einer neuen sucht.
+- `index.html` fordert Stylesheet und Skripte mit einer Fassungskennung an (`?v=23`). Ein bereits installierter alter Service Worker liefert nur exakt passende Adressen aus seinem Speicher; mit Kennung trifft die Anfrage dort auf nichts und geht ins Netz. Das ist der Rettungsweg fuer Geraete, die noch auf einer Fassung mit reiner Cache-Auslieferung stehen. Die Kennung wird zusammen mit `VERSION` in `sw.js` erhoeht.
+- Der Offline-Rueckfall sucht mit `ignoreSearch`, weil die Dateien ohne Kennung abgelegt, aber mit Kennung angefordert werden.
 
 ### Wahl der Leseart beim PDF-Import
 
@@ -969,6 +971,12 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.29
+
+- Fassungskennung an Stylesheet und Skripten, damit Geraete mit altem Service Worker die Korrekturen ueberhaupt laden koennen
+- Offline-Rueckfall und Selbstcheck suchen mit ignoreSearch, sodass der Start ohne Netz weiter funktioniert
+- geprueft: Start mit Kennung, Anzeige der Fassung im Profil und vollstaendiger Offline-Start
 
 ## Changelog 3.28
 
