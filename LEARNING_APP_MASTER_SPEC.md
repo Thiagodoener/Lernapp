@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.24 — 10.09.2026
+## Version 3.25 — 11.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -617,6 +617,12 @@ Unterstützte Tasks:
 
 Textaufgaben sind im kostenlosen Kontingent für den Einzelbetrieb in der Regel ausreichend abgedeckt. `analyzeImage` verbraucht pro Bild deutlich mehr Kontingent als eine Textanfrage. Werden Minuten- oder Tagesgrenzen erreicht, bleibt LOCAL der kostenfreie Fallback.
 
+### Providerentscheidung
+
+Geprüft wurden Anthropic (Claude), OpenAI (GPT) und Google (Gemini) als CLOUD-Provider. Ausschlaggebend war nicht der Preis pro Token — bei dem tatsächlichen Nutzungsvolumen einer Einzelperson liegen alle drei im Cent- bis niedrigen einstelligen Euro-Bereich pro Monat und der Unterschied ist praktisch irrelevant. Ausschlaggebend war, dass **nur Google ein dauerhaftes, kostenloses API-Kontingent anbietet**; Anthropic und OpenAI verlangen ab dem ersten Token Zahlung. Nur Gemini erfüllt damit das Kostenprinzip aus Kapitel 3.5 ohne jede Zahlungspflicht. Deshalb bleibt Gemini der Provider hinter dem Proxy, solange der kostenlose Betrieb Priorität hat.
+
+Sollte künftig für einzelne Aufgaben höhere Qualität gewünscht sein — am ehesten für `evaluateFreeAnswer`, die anspruchsvollste Bewertungsaufgabe —, ist ein Wechsel kein reiner Konfigurationsschalter: Anthropic, OpenAI und Google verwenden jeweils ein anderes Anfrageformat, der Worker müsste die Aufgabe für den jeweiligen Provider neu formulieren. Eine spätere Option wäre eine Aufgaben-zu-Provider-Zuordnung, damit einzelne Aufgaben gezielt auf einen bezahlten Provider zeigen können, während der Rest kostenfrei über Gemini läuft. Bis dahin gilt: Kernbetrieb bleibt vollständig auf der kostenfreien Variante.
+
 ### Nutzungsprotokoll und Tageslimit
 
 Jede an den Proxy gesendete Anfrage wird lokal protokolliert: Datum, Aufgabe und ob sie erfolgreich war. Gezählt werden Anfragen, nicht Aufgaben, weil eine Wiederholung nach Drosselung ebenfalls Kontingent verbraucht. LOCAL-Verarbeitung erscheint nicht im Protokoll, weil sie nichts verbraucht.
@@ -895,6 +901,12 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.25
+
+- Providerentscheidung dokumentiert: Anthropic, OpenAI und Google verglichen, Ausschlag gab das dauerhafte kostenlose Kontingent von Google, nicht der Preis pro Token
+- festgehalten: Kernbetrieb bleibt vollstaendig auf der kostenfreien Gemini-Variante, solange keine bewusste Entscheidung fuer bezahlte Zusatzqualitaet einzelner Aufgaben getroffen wird
+- als spaetere Option vermerkt: Aufgaben-zu-Provider-Zuordnung, falls einzelne Aufgaben wie evaluateFreeAnswer spaeter gezielt einen bezahlten Provider nutzen sollen
 
 ## Changelog 3.24
 
