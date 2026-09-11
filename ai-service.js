@@ -127,6 +127,43 @@ function loadTesseract(){
   return tesseractPromise;
 }
 
+// Ein Tesseract-Worker braucht mehrere Sekunden zum Starten und laedt dabei
+// Sprachdaten nach. Bei einem PDF mit vielen Bildseiten waere das pro Seite
+// erneut faellig, deshalb bleibt er zwischen den Seiten stehen und wird erst
+// nach einer Ruhezeit abgeraeumt.
+const OCR_IDLE_MS=60000;
+let ocrWorkerPromise=null;
+let ocrIdleTimer=null;
+
+function ocrWorker(){
+  clearTimeout(ocrIdleTimer);
+  if(!ocrWorkerPromise){
+    ocrWorkerPromise=loadTesseract()
+      .then(Tesseract=>Tesseract.createWorker("deu+eng",1))
+      .catch(error=>{ocrWorkerPromise=null;throw error;});
+  }
+  return ocrWorkerPromise;
+}
+
+function releaseOcrWorkerLater(){
+  clearTimeout(ocrIdleTimer);
+  const pending=ocrWorkerPromise;
+  ocrIdleTimer=setTimeout(()=>{
+    if(ocrWorkerPromise===pending)discardOcrWorker();
+  },OCR_IDLE_MS);
+}
+
+// Nach einem Fehler ist unklar, in welchem Zustand der Worker steckt. Ihn
+// weiterzuverwenden wuerde den Fehler auf die naechste Seite vererben.
+async function discardOcrWorker(){
+  clearTimeout(ocrIdleTimer);
+  const pending=ocrWorkerPromise;
+  ocrWorkerPromise=null;
+  if(!pending)return;
+  const worker=await pending.catch(()=>null);
+  await worker?.terminate?.().catch(()=>{});
+}
+
 function localTutor({message="",context=""}={}){
   const terms=[...String(message).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(x=>x.length>=4)];
   const chunks=String(context).split(/\n{2,}/).map(x=>x.trim()).filter(Boolean);
@@ -187,13 +224,16 @@ const localProvider={
   async analyzeImage({imageBase64="",mimeType=""}={}){
     const data=String(imageBase64).replace(/^data:[^,]*,/,"").trim();
     if(!data)throw new Error("Es wurde kein Bild übergeben.");
-    const Tesseract=await loadTesseract();
-    const worker=await Tesseract.createWorker("deu+eng",1);
+    const worker=await ocrWorker();
     try{
       const result=await worker.recognize(`data:${mimeType||"image/jpeg"};base64,${data}`);
       const text=String(result?.data?.text||"").replace(/\s+/g," ").trim();
+      releaseOcrWorkerLater();
       return {provider:"LOCAL",text,kind:"OTHER",confidence:Math.min(0.4,Math.max(0,Number(result?.data?.confidence)||0)/100*0.4)};
-    }finally{await worker.terminate().catch(()=>{});}
+    }catch(error){
+      await discardOcrWorker();
+      throw error;
+    }
   }
 };
 
