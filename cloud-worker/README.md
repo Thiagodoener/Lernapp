@@ -4,7 +4,7 @@ Dieser Worker ist die optionale sichere CLOUD-Schicht der Lernapp. Die PWA bleib
 
 ## Zweck
 
-Der Worker nimmt nur die sechs freigegebenen semantischen Aufgaben entgegen:
+Der Worker nimmt nur die sieben freigegebenen semantischen Aufgaben entgegen:
 
 - `summarize`
 - `tutor`
@@ -12,8 +12,11 @@ Der Worker nimmt nur die sechs freigegebenen semantischen Aufgaben entgegen:
 - `generateFlashcards`
 - `evaluateFreeAnswer`
 - `analyzeImage`
+- `generateChoiceOptions`
 
 Der Gemini-API-Key liegt ausschließlich als Worker-Secret vor und wird niemals an die PWA ausgeliefert.
+
+Zusätzlich beantwortet der Worker `syncPull` und `syncPush` für den optionalen Abgleich zwischen Geräten. Das sind keine Modellaufrufe: sie verbrauchen kein Gemini-Kontingent.
 
 ## Warum Gemini
 
@@ -36,13 +39,41 @@ npx wrangler secret put GEMINI_API_KEY
 npx wrangler secret put LERNAPP_ACCESS_KEY
 ```
 
-Danach `ALLOWED_ORIGIN` und `GEMINI_MODEL` in `wrangler.toml` setzen und deployen:
+`ALLOWED_ORIGIN` und `GEMINI_MODEL` stehen in `wrangler.toml`. Sie gehören dorthin und nicht nur ins Dashboard: ein Deploy aus dem Repository setzt die Variablen des Workers auf genau den Stand dieser Datei und würde im Dashboard gesetzte Werte sonst entfernen.
+
+`ALLOWED_ORIGIN` ist die Origin der PWA, also Schema und Host **ohne Pfad und ohne abschließenden Schrägstrich**. Der Browser sendet den `Origin`-Header genau so; ein zusätzlicher Schrägstrich führt zu `Origin nicht erlaubt`.
+
+Danach deployen:
 
 ```bash
 npx wrangler deploy
 ```
 
 Die ausgegebene `https://...workers.dev`-Adresse wird anschließend in der Lernapp unter **Profil → Cloud-Verbindung** eingetragen. Als persönlichen Zugriffsschlüssel dort denselben Wert eintragen, der als `LERNAPP_ACCESS_KEY` im Worker gespeichert wurde.
+
+Wird der Worker über das Dashboard angelegt, muss die `workers.dev`-Adresse unter **Domains** zusätzlich aktiviert werden. Solange dort „No URLs enabled“ steht, ist der Worker nicht erreichbar.
+
+## Abgleich zwischen Geräten
+
+Der Abgleich ist optional. Ohne ihn läuft die App unverändert, der Lernstand bleibt dann nur auf dem jeweiligen Gerät.
+
+Dafür braucht der Worker einen KV-Namespace:
+
+```bash
+cd cloud-worker
+npx wrangler kv namespace create LERNAPP_SYNC
+```
+
+Die ausgegebene ID in `wrangler.toml` im auskommentierten Block `[[kv_namespaces]]` eintragen, den Block aktivieren und erneut deployen. Danach erscheint der Abgleich in der Lernapp unter **Profil → Abgleich zwischen Geräten**.
+
+Eigenschaften:
+
+- Der Lernstand liegt unter einem Schlüssel, der aus dem SHA-256 des Zugriffsschlüssels abgeleitet wird. Ohne `LERNAPP_ACCESS_KEY` verweigert der Worker den Abgleich.
+- Der Worker speichert den Stand unverändert und wertet ihn nicht aus. Zusammengeführt wird ausschließlich in der PWA.
+- Eine Revisionsnummer verhindert, dass ein Gerät einen Stand überschreibt, den es nicht gesehen hat.
+- Ein Stand darf höchstens 20 MB groß sein.
+
+Fehlt die KV-Bindung, laufen alle KI-Aufgaben normal weiter und nur der Abgleich meldet, dass er nicht eingerichtet ist.
 
 ## Sicherheitsregeln
 

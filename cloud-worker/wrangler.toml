@@ -2,7 +2,22 @@ name = "lernapp-ai-proxy"
 main = "src/index.js"
 compatibility_date = "2026-09-10"
 
+# Diese beiden Werte sind keine Geheimnisse und stehen bewusst hier statt nur im
+# Dashboard: ein Deploy aus dem Repository setzt die Variablen des Workers auf
+# genau das, was in dieser Datei steht. Fehlen sie hier, loescht der naechste
+# Deploy die im Dashboard gesetzten Werte.
+# ALLOWED_ORIGIN ist die Origin der PWA, also Schema und Host ohne Pfad und ohne
+# abschliessenden Schraegstrich. Der Browser sendet den Origin-Header genau so;
+# ein zusaetzlicher Schraegstrich fuehrt zu "Origin nicht erlaubt".
 [vars]
-# Set this to the exact origin of your installed PWA, for example:
-# ALLOWED_ORIGIN = "https://thiagodoener.github.io"
-# GEMINI_MODEL = "<current supported Gemini model id, e.g. gemini-2.0-flash>"
+ALLOWED_ORIGIN = "https://thiagodoener.github.io"
+GEMINI_MODEL = "gemini-2.0-flash"
+
+# GEMINI_API_KEY und LERNAPP_ACCESS_KEY bleiben Secrets und stehen nie hier.
+
+# Geraetesynchronisation: ohne diese Bindung liefen alle KI-Aufgaben normal
+# weiter, nur der Abgleich zwischen Geraeten haette gemeldet, dass er nicht
+# eingerichtet ist. Namespace "lernapp-sync" ist angelegt und hier gebunden.
+[[kv_namespaces]]
+binding = "LERNAPP_SYNC"
+id = "1ee3012209124e35b0a0ad55b4570640"

@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.25 — 11.09.2026
+## Version 3.26 — 11.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -286,7 +286,13 @@ Evidence enthält mindestens:
 - Zeit/Quelle
 - Independent-Recall-Information
 
-**Status:** gemeinsame AIService-Pipeline für Selbsttests und Prüfungssimulation implementiert. LOCAL verwendet konservative Heuristik; hochwertige semantische CLOUD-Bewertung ist vorbereitet, aber noch nicht live end-to-end getestet.
+### Multiple Choice
+
+Das Quiz entsteht aus den vorhandenen Karteikarten und fragt zuerst die schwächsten Lernziele ab. Die falschen Antwortmöglichkeiten liefert `AIService.generateChoiceOptions()`; im LOCAL-Modus und bei jedem Cloud-Fehler entstehen sie aus den Antworten der übrigen Karten desselben Moduls. Optionen, die der richtigen Antwort zu ähnlich sind, werden verworfen, damit keine zweite richtige Antwort entsteht.
+
+Eine ausgewählte Antwort ist Wiedererkennung, kein freier Abruf. Die Evidence trägt deshalb `independentRecall: false` und wird in der Mastery nur halb gewichtet; die Confidence bleibt niedrig, weil eine richtige Antwort geraten sein kann. Das Quiz verschiebt bewusst keine FSRS-Intervalle, weil dafür die Selbsteinschätzung aus dem Review maßgeblich ist.
+
+**Status:** gemeinsame AIService-Pipeline für Selbsttests und Prüfungssimulation implementiert. LOCAL verwendet konservative Heuristik; hochwertige semantische CLOUD-Bewertung ist vorbereitet, aber noch nicht live end-to-end getestet. Multiple Choice ist implementiert.
 
 ## 11. Wissenslücken
 
@@ -536,7 +542,21 @@ MUST:
 
 Vor destruktiven Aktionen soll Backup empfohlen bzw. ermöglicht werden.
 
-**Status:** PWA JSON Backup/Restore implementiert.
+### Abgleich zwischen Geräten
+
+Der Abgleich ist optional und läuft über denselben eigenen Cloud-Proxy wie die KI-Aufgaben. Er verbraucht kein KI-Kontingent und wird von dessen Tageslimit auch nicht blockiert. Ohne eingerichteten Proxy bleibt die App unverändert nutzbar; der Lernstand liegt dann wie bisher nur auf dem jeweiligen Gerät.
+
+Regeln:
+
+- Der Proxy legt den Lernstand unter einem Schlüssel ab, der aus dem persönlichen Zugriffsschlüssel abgeleitet wird. Ohne gesetzten `LERNAPP_ACCESS_KEY` verweigert er den Abgleich, weil es sonst nur einen gemeinsamen Ablageplatz gäbe.
+- Zusammengeführt wird je Datensatz, nicht als Ganzes: Datensätze beider Geräte bleiben erhalten, und nur bei demselben Datensatz gewinnt die neuere Fassung. Dafür trägt jeder Schreibvorgang ein `updatedAt`.
+- Löschungen hinterlassen eine Löschmarke. Ohne sie käme ein gelöschter Datensatz beim nächsten Abgleich vom anderen Gerät zurück. Wurde ein Datensatz nach seiner Löschung noch bearbeitet, gewinnt die Bearbeitung.
+- Eine Revisionsnummer verhindert, dass ein Gerät einen Stand überschreibt, den es nicht gesehen hat. Bei Konflikt führt der Client erneut zusammen, statt zu überschreiben.
+- Proxy-Endpunkt und Zugriffsschlüssel werden nie übertragen. Sie gehören zum Gerät, sonst könnte ein Abgleich die eigene Verbindung kappen.
+- Das leere Standardmodul eines frisch installierten Geräts weicht beim ersten Abgleich dem bereits vorhandenen Modul, damit nicht zwei Module nebeneinander stehen.
+- Nutzungsprotokoll und Fortschrittsverlauf werden vereinigt statt überschrieben, weil beide Geräte eigene Einträge sammeln.
+
+**Status:** PWA JSON Backup/Restore implementiert. Geräteabgleich implementiert; er benötigt im Worker zusätzlich die KV-Bindung `LERNAPP_SYNC`.
 
 ## 24. Betriebsmodi
 
@@ -851,9 +871,11 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | Streak | IMPLEMENTIERT |
 | erweiterte Gamification | OPTIONAL/OFFEN |
 | JSON Backup/Restore | IMPLEMENTIERT |
+| Multiple Choice / Quiz | IMPLEMENTIERT |
+| Abgleich zwischen Geräten | IMPLEMENTIERT, KV-Bindung im Worker offen |
 | LOCAL/AUTO/CLOUD | IMPLEMENTIERT |
 | Cloud-Proxy-Code | IMPLEMENTIERT |
-| Cloud-Proxy live | OFFEN |
+| Cloud-Proxy live | IMPLEMENTIERT, Verbindung aus der PWA bestätigt |
 | AI-Kosten-/Nutzungslimit | IMPLEMENTIERT |
 | AI-Nutzungsprotokoll | IMPLEMENTIERT |
 | Selbstcheck nach Kapitel 33 | IMPLEMENTIERT |
@@ -889,9 +911,9 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 
 ## 36. Offene Prioritäten ab Version 3.22
 
-1. Cloudflare Worker tatsächlich deployen, `GEMINI_API_KEY`/`GEMINI_MODEL`/Origin setzen.
-2. Cloud-Verbindung auf echtem iPhone testen.
-3. Alle sechs CLOUD-AIService-Funktionen E2E testen, insbesondere `analyzeImage` mit einer echten handschriftlichen Mitschrift.
+1. KV-Namespace `LERNAPP_SYNC` anlegen und im Worker binden, damit der Geräteabgleich live geht.
+2. Geräteabgleich mit zwei echten Geräten durchspielen.
+3. Alle sieben CLOUD-AIService-Funktionen E2E testen, insbesondere `analyzeImage` mit einer echten handschriftlichen Mitschrift.
 4. Highlights inhaltlich gegen reale Studienunterlagen prüfen.
 5. Erweiterte Gamification bewerten, soweit sie das Lernen stützt.
 6. Knowledge Map bewerten.
@@ -901,6 +923,15 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.26
+
+- Multiple-Choice-Quiz aus den vorhandenen Karteikarten, Distraktoren aus der Cloud mit lokalem Rueckfallweg
+- Quizergebnis zaehlt als Wiedererkennung und wird in der Mastery halb gewichtet, FSRS-Intervalle bleiben unberuehrt
+- optionaler Abgleich zwischen Geraeten ueber den eigenen Cloud-Proxy, datensatzweise zusammengefuehrt statt ueberschrieben
+- Loeschmarken, damit geloeschte Inhalte nicht vom anderen Geraet zurueckkommen
+- Verbindungsdaten des Proxys bleiben geraeteeigen und werden nie mit abgeglichen
+- ALLOWED_ORIGIN und GEMINI_MODEL liegen in der wrangler.toml, damit ein Deploy aus dem Repository die Worker-Variablen nicht loescht
 
 ## Changelog 3.25
 

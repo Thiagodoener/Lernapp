@@ -215,10 +215,14 @@ async function tx(store, mode="readonly") {
   const db = await openDB();
   return db.transaction(store, mode).objectStore(store);
 }
+// updatedAt entscheidet beim Abgleich zwischen Geraeten, welche Fassung eines
+// Datensatzes gewinnt. Ohne diesen Stempel waere bei Datensaetzen, die sich
+// aendern ohne ein eigenes Datum zu fuehren, keine Reihenfolge erkennbar.
 async function put(store, value) {
   const os = await tx(store,"readwrite");
+  const stamped = {...value, updatedAt: nowISO()};
   return new Promise((resolve,reject)=>{
-    const r=os.put(value); r.onsuccess=()=>resolve(value); r.onerror=()=>reject(r.error);
+    const r=os.put(stamped); r.onsuccess=()=>resolve(stamped); r.onerror=()=>reject(r.error);
   });
 }
 async function get(store,id) {
@@ -235,9 +239,12 @@ async function all(store) {
 }
 async function del(store,id) {
   const os=await tx(store,"readwrite");
-  return new Promise((resolve,reject)=>{
+  await new Promise((resolve,reject)=>{
     const r=os.delete(id); r.onsuccess=()=>resolve(); r.onerror=()=>reject(r.error);
   });
+  // Ohne Loeschmarke wuerde der Datensatz beim naechsten Abgleich vom anderen
+  // Geraet zurueckkommen.
+  await window.LernappSync?.recordDeletion(store,[id]).catch(()=>{});
 }
 async function clearStore(store) {
   const os=await tx(store,"readwrite");
@@ -1024,6 +1031,7 @@ async function renderLearn() {
     <section class="card">
       ${cards.length?`<button class="primary full" id="start-review">Review starten</button>`:`<div class="empty">Aktuell ist keine Karte fällig.</div>`}
     </section>
+    <div id="quiz-slot"></div>
     <section class="card">
       <h2>Review-Regel</h2>
       <p class="muted">Bewerte erst nach dem Anzeigen der Antwort. Diese Selbsteinschätzung steuert die nächste Wiederholung, zählt aber nicht als unabhängiger Abruf.</p>
@@ -1259,6 +1267,7 @@ async function renderProfile() {
         <button class="secondary full" id="import-backup">Backup wiederherstellen</button>
       </div>
     </section>
+    <div id="sync-slot"></div>
     <section class="card">
       <h2>Lokale Daten</h2>
       <div class="row between"><span>Dokumente</span><strong>${counts.documents}</strong></div>
@@ -1288,6 +1297,15 @@ $("#backup-import").addEventListener("change",async e=>{
 });
 $("#modal-close").addEventListener("click",closeModal);
 modal.addEventListener("click",e=>{if(e.target===modal)closeModal()});
+
+// Nach einem Abgleich kann das bisher aktive Modul geloescht worden sein, und
+// die angezeigten Zahlen sind veraltet. Ein offenes Sheet bleibt unangetastet,
+// damit niemandem mitten in einer Eingabe die Oberflaeche wegspringt.
+window.addEventListener("lernapp:sync-applied",async()=>{
+  const modules=await all("modules");
+  if(!modules.some(m=>m.id===state.moduleId))state.moduleId=modules[0]?.id||null;
+  if(!modal.open)render();
+});
 
 window.addEventListener("beforeinstallprompt",e=>{
   e.preventDefault(); state.installPrompt=e; $("#install-button").classList.remove("hidden");
