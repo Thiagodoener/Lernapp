@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.27 — 11.09.2026
+## Version 3.28 — 11.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -131,6 +131,34 @@ Eine Textebene wird nur verwendet, wenn sie tatsächlich brauchbar ist. Zwei Fä
 - Die Textebene ist verklebt. PDFs aus iOS Notizen legen zu Handschrift eine Textebene ohne Leerzeichen ab („KörperunterteiltindreigroßenWelten"). Als Merkmal dient die Zeichenzahl pro Wort: echter Fließtext liegt bei etwa sieben, eine verklebte Ebene bei über zwanzig. Ab 15 gilt die Ebene als unbrauchbar.
 
 Damit landen Folien, Tafelbilder und handschriftliche Mitschriften im Bildverstehen statt in einer Textebene, aus der sich keine sinnvollen Lernziele bilden lassen.
+
+### Bibliotheken liegen im Repository
+
+PDF.js samt Worker und Standardschriften sowie ts-fsrs werden aus `vendor/` ausgeliefert statt von einem CDN. Gruende:
+
+- Ein Web Worker darf nur von derselben Herkunft geladen werden. Vom CDN faellt PDF.js auf die Abarbeitung im Hauptstrang zurueck, was den Import spuerbar verlangsamt.
+- Ohne Netz war bisher kein PDF-Import moeglich, obwohl die App ansonsten offline arbeitet.
+- Der Stand ist damit reproduzierbar und pruefbar, statt von der Verfuegbarkeit eines fremden Dienstes abzuhaengen.
+
+Verwendet wird der `legacy`-Build von pdfjs-dist 4.10.38. Neuere Fassungen setzen `Map.prototype.getOrInsertComputed` voraus, eine Funktion, die aeltere Browser-Engines nicht kennen; das Rendern einer Seite scheiterte dort mit `getOrInsertComputed is not a function`. Tesseract bleibt als reiner LOCAL-Rueckfallweg am CDN, weil seine Sprachdaten den Umfang des Repositorys sprengen wuerden.
+
+### Aktualisierungen muessen ankommen
+
+Der Service Worker lieferte jede Datei zuerst aus dem Cache. Eine einmal installierte Fassung blieb dadurch dauerhaft auf dem Geraet stehen, und keine Korrektur erreichte den Nutzer. Seit Fassung v22 gilt:
+
+- App-Dateien: zuerst aus dem Netz, mit Zeitgrenze und Rueckfall auf den Cache. Damit ist die App offline weiter benutzbar, bekommt aber jede Korrektur beim naechsten Start mit Netz.
+- Bibliotheken unter `vendor/`: zuerst aus dem Cache, da sie an ihre Version gebunden sind.
+- Fremde Herkunft wird nicht abgefangen, damit ein zwischengespeicherter Fehlschlag nicht dauerhaft wie eine gueltige Antwort wirkt.
+- Das Profil zeigt die installierte Fassung und bietet eine Schaltflaeche, die gezielt nach einer neuen sucht.
+
+### Wahl der Leseart beim PDF-Import
+
+Eine Textebene kann vorhanden und trotzdem schlecht sein. Bei Handschrift aus iOS Notizen ist sie ueberwiegend richtig, enthaelt aber Muellstellen. Messbar von sauberem Text unterscheiden laesst sich das nicht: geprueft wurden Vokalanteil, Wiederholungen, Grossschreibung im Wortinneren und Wortlaenge, keine dieser Kennzahlen trennt die Faelle. Statt zu raten fragt die App beim PDF-Import einmal nach und merkt sich die Wahl:
+
+- **Text verwenden:** schnell und genau bei getippten Skripten.
+- **Seiten als Bild lesen:** erfasst bei Handschrift, Folien und Skizzen deutlich mehr, weil auch Zeichnungen und Tabellen beschrieben werden.
+
+Seiten ohne Textebene laufen unabhaengig von dieser Wahl immer ueber das Bildverstehen.
 
 ### Safari und ReadableStream
 
@@ -853,6 +881,9 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | PDF/TXT/MD Import | IMPLEMENTIERT |
 | PDF-Textextraktion | IMPLEMENTIERT |
 | Bildverstehen für PDF-Seiten ohne brauchbare Textebene | IMPLEMENTIERT |
+| Wahl der Leseart beim PDF-Import | IMPLEMENTIERT |
+| Bibliotheken ohne CDN im Repository | IMPLEMENTIERT |
+| Aktualisierungen erreichen installierte Geräte | IMPLEMENTIERT |
 | OCR-Fallback | IMPLEMENTIERT, Geräte-Endtest offen |
 | Bildimport (Foto, Mitschrift, Folie, Skizze) | IMPLEMENTIERT, Geräte-Endtest offen |
 | Bildverstehen im CLOUD-Modus | IMPLEMENTIERT, Live-Test nach Deployment offen |
@@ -938,6 +969,15 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.28
+
+- PDF.js, dessen Worker, Standardschriften und ts-fsrs liegen als vendor/ im Repository statt am CDN
+- pdfjs-dist auf den legacy-Build 4.10.38 gesetzt: neuere Fassungen brauchen Map.prototype.getOrInsertComputed und scheiterten beim Rendern
+- Service Worker liefert App-Dateien network-first, damit Korrekturen installierte Geraete ueberhaupt erreichen
+- Profil zeigt die installierte Fassung und sucht auf Wunsch nach einer neuen
+- PDF-Import fragt einmal nach der Leseart und merkt sich die Wahl
+- geprueft mit den echten Dateien: 12-seitiges PDF ergibt 7 Seiten aus der Textebene und 5 ueber das Bildverstehen
 
 ## Changelog 3.27
 

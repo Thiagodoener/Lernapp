@@ -63,11 +63,23 @@ async function aiImportPageImage(page){
   }
 }
 
-async function aiImportExtractPDF(file){
+// Eine PDF-Textebene kann vorhanden und trotzdem schlecht sein: bei Handschrift
+// aus iOS Notizen ist sie ueberwiegend richtig, enthaelt aber Muellstellen wie
+// "spaerfaehaeusonderhefkaemuehen". Messbar von sauberem Text unterscheiden
+// laesst sich das nicht zuverlaessig, deshalb entscheidet der Nutzer.
+async function aiImportExtractPDF(file,readAs="TEXT"){
   if(!window.AIService)throw new Error("AIService ist nicht verfügbar.");
-  const pdfjs=await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.mjs";
-  const pdf=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+  // Aus dem eigenen Verzeichnis statt von einem CDN: ein Worker darf nur von
+  // derselben Herkunft geladen werden. Von einem CDN faellt PDF.js auf die
+  // langsamere Abarbeitung im Hauptstrang zurueck, und ohne Netz ginge gar
+  // nichts. standardFontDataUrl wird fuer PDFs gebraucht, die ihre Schriften
+  // nicht mitliefern; ohne die Daten bleiben beim Rendern Stellen leer.
+  const pdfjs=await import("./vendor/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc=new URL("./vendor/pdf.worker.mjs",location.href).href;
+  const pdf=await pdfjs.getDocument({
+    data:new Uint8Array(await file.arrayBuffer()),
+    standardFontDataUrl:new URL("./vendor/standard_fonts/",location.href).href
+  }).promise;
   const pages=[];
   const failed=[];
   let announcedVision=false;
@@ -76,7 +88,7 @@ async function aiImportExtractPDF(file){
     aiImportToast(`Verarbeite Seite ${number} von ${pdf.numPages}`);
     try{
       const page=await pdf.getPage(number);
-      const layer=await aiImportPageTextLayer(page);
+      const layer=readAs==="IMAGE"?"":await aiImportPageTextLayer(page);
       if(aiImportTextLayerUsable(layer)){
         pages.push({page:number,text:layer,extraction:"PDF_TEXT"});
         continue;
@@ -155,8 +167,8 @@ async function aiImportExtractImage(file){
   return [{page:1,text,extraction:result?.provider==="CLOUD"?"AI_VISION":"OCR",imageKind:result?.kind||"OTHER"}];
 }
 
-async function aiImportExtractFile(file){
-  if(file.type==="application/pdf"||file.name.toLowerCase().endsWith(".pdf"))return aiImportExtractPDF(file);
+async function aiImportExtractFile(file,readAs="TEXT"){
+  if(aiImportIsPDF(file))return aiImportExtractPDF(file,readAs);
   if(aiImportIsImage(file))return aiImportExtractImage(file);
   const text=await file.text();
   const paras=text.split(/\n{2,}/).map(x=>x.trim()).filter(Boolean),pages=[];
@@ -165,7 +177,7 @@ async function aiImportExtractFile(file){
 }
 
 async function aiImportNewFSRSCard(){
-  const {createEmptyCard}=await import("https://esm.sh/ts-fsrs@5.4.1?bundle");
+  const {createEmptyCard}=await import("./vendor/ts-fsrs.mjs");
   const card=createEmptyCard(new Date());
   return {...card,due:new Date(card.due).toISOString(),last_review:card.last_review?new Date(card.last_review).toISOString():null};
 }
@@ -275,10 +287,10 @@ async function aiImportGenerateCards(goals,module){
   return created;
 }
 
-async function aiImportStudyFile(file){
+async function aiImportStudyFile(file,readAs="TEXT"){
   const module=await aiImportActiveModule();
   aiImportToast("Material wird analysiert …");
-  const pages=(await aiImportExtractFile(file)).filter(p=>String(p.text||"").trim().length>20);
+  const pages=(await aiImportExtractFile(file,readAs)).filter(p=>String(p.text||"").trim().length>20);
   if(!pages.length)throw new Error("Aus der Datei konnte kein Text extrahiert werden.");
   // Die Relevanzpruefung soll Ballast aus umfangreichen Dokumenten fernhalten.
   // Ein einseitiger Import ist eine bewusste Auswahl des Nutzers, etwa das Foto
@@ -317,6 +329,44 @@ async function aiImportStudyFile(file){
   }
 }
 
+function aiImportIsPDF(file){
+  return String(file?.type||"")==="application/pdf"||String(file?.name||"").toLowerCase().endsWith(".pdf");
+}
+
+async function aiImportReadPreference(){
+  const settings=(await aiImportAll("settings")).find(record=>record.id==="app");
+  return settings?.pdfImportMode==="IMAGE"?"IMAGE":"TEXT";
+}
+
+async function aiImportSavePreference(readAs){
+  const settings=(await aiImportAll("settings")).find(record=>record.id==="app")||{id:"app",dailyMinutes:30};
+  await aiImportPut("settings",{...settings,pdfImportMode:readAs});
+}
+
+function aiImportAskHowToRead(preferred){
+  const modal=document.querySelector("#modal");
+  const box=document.querySelector("#modal-content");
+  if(!modal||!box)return Promise.resolve(preferred);
+  return new Promise(resolve=>{
+    let chosen=null;
+    box.innerHTML=`
+      <div class="eyebrow">PDF IMPORTIEREN</div>
+      <h2>Wie soll gelesen werden?</h2>
+      <p class="small muted">Getippte Skripte liest die Textebene schneller und genauer. Bei Handschrift, Folien und Skizzen erfasst das Bildverstehen deutlich mehr, weil es auch Zeichnungen, Diagramme und Tabellen beschreibt.</p>
+      <div class="stack">
+        <button type="button" class="${preferred==="IMAGE"?"secondary":"primary"} full" data-read="TEXT">Text verwenden</button>
+        <button type="button" class="${preferred==="IMAGE"?"primary":"secondary"} full" data-read="IMAGE">Seiten als Bild lesen</button>
+      </div>
+      <p class="small muted">Seiten ohne Textebene werden ohnehin immer als Bild gelesen. Deine Wahl bleibt als Vorgabe gespeichert.</p>
+    `;
+    modal.addEventListener("close",()=>resolve(chosen),{once:true});
+    box.querySelectorAll("[data-read]").forEach(button=>{
+      button.onclick=()=>{chosen=button.dataset.read;modal.close();};
+    });
+    if(!modal.open)modal.showModal();
+  });
+}
+
 const aiImportInput=document.querySelector("#file-import");
 if(aiImportInput){
   aiImportInput.addEventListener("change",async event=>{
@@ -325,7 +375,13 @@ if(aiImportInput){
     event.stopImmediatePropagation();
     event.preventDefault();
     try{
-      await aiImportStudyFile(file);
+      let readAs="TEXT";
+      if(aiImportIsPDF(file)){
+        readAs=await aiImportAskHowToRead(await aiImportReadPreference());
+        if(!readAs)return;
+        await aiImportSavePreference(readAs);
+      }
+      await aiImportStudyFile(file,readAs);
       document.querySelector('[data-tab="library"]')?.click();
     }catch(error){
       alert(`Import fehlgeschlagen: ${error.message}`);

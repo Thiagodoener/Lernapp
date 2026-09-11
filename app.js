@@ -22,9 +22,7 @@ let fsrsModulePromise = null;
 
 async function getFSRSModule() {
   if (!fsrsModulePromise) {
-    fsrsModulePromise = import(
-      "https://esm.sh/ts-fsrs@5.4.1?bundle"
-    );
+    fsrsModulePromise = import("./vendor/ts-fsrs.mjs");
   }
   return fsrsModulePromise;
 }
@@ -1232,6 +1230,18 @@ async function importBackup(file) {
   render();
 }
 
+// Der Name des aktiven Caches traegt die Fassung. Ohne diese Anzeige laesst sich
+// nicht feststellen, ob eine Korrektur das Geraet ueberhaupt erreicht hat.
+async function installedVersion() {
+  try {
+    const names=await caches.keys();
+    const own=names.find(name=>name.startsWith("lernapp-pwa-"));
+    return own ? own.replace("lernapp-pwa-","") : "ohne Offline-Cache";
+  } catch {
+    return "unbekannt";
+  }
+}
+
 async function renderProfile() {
   const settings=await ensureSettings();
   const module=await activeModule();
@@ -1242,6 +1252,8 @@ async function renderProfile() {
       <h2>Personal PWA</h2>
       <p class="muted">Die Lernkerndaten liegen lokal auf diesem Gerät im Browser. Kein Backend und kein Apple-Developer-Abo sind für diesen Modus erforderlich.</p>
       <span class="badge good">Offline-first</span>
+      <div class="row between" style="margin-top:14px"><span class="small muted">Installierte Fassung</span><strong class="small">${esc(await installedVersion())}</strong></div>
+      <button class="secondary full" id="check-update" style="margin-top:10px">Nach Aktualisierung suchen</button>
     </section>
     <section class="card">
       <h2>Lernzeit</h2>
@@ -1285,6 +1297,23 @@ async function renderProfile() {
   };
   $("#export").onclick=exportBackup;
   $("#import-backup").onclick=()=>$("#backup-import").click();
+  $("#check-update").onclick=async event=>{
+    const button=event.currentTarget;
+    button.disabled=true;
+    const label=button.textContent;
+    button.textContent="Wird geprüft …";
+    try{
+      const registration=await navigator.serviceWorker?.getRegistration();
+      if(!registration)throw new Error("Für diese Installation ist kein Offline-Dienst aktiv.");
+      await registration.update();
+      toast("Neue Fassung wird geladen …");
+      setTimeout(()=>location.reload(),900);
+    }catch(error){
+      button.disabled=false;
+      button.textContent=label;
+      toast(error.message||"Aktualisierung fehlgeschlagen.");
+    }
+  };
 }
 
 document.querySelectorAll(".tabbar button").forEach(b=>b.addEventListener("click",()=>{
