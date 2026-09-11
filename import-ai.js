@@ -20,37 +20,92 @@ window.addEventListener("lernapp:cloud-throttled",event=>{
 
 async function aiImportActiveModule(){const modules=await aiImportAll("modules");if(!modules.length)throw new Error("Kein Lernmodul vorhanden.");return modules[0];}
 
-async function aiImportTesseract(){
-  if(!window.LernappTesseract)throw new Error("OCR ist nicht verfügbar.");
-  return window.LernappTesseract();
+const AI_IMPORT_PDF_MIN_CHARS=20;
+// PDFs aus iOS Notizen tragen zu Handschrift eine Textebene, in der saemtliche
+// Leerzeichen fehlen ("KoerperunterteiltindreigrossenWelten"). Zeichenzahl pro
+// Wort trennt das zuverlaessig von echtem Fliesstext: dort sind es rund sieben,
+// in einer verklebten Ebene ueber zwanzig. Solche Seiten sind als Text wertlos
+// und werden deshalb wie eine Folie ueber das Bild ausgewertet.
+const AI_IMPORT_PDF_MAX_CHARS_PER_WORD=15;
+
+function aiImportTextLayerUsable(text){
+  const value=String(text||"").trim();
+  if(value.length<AI_IMPORT_PDF_MIN_CHARS)return false;
+  const words=value.split(/\s+/).filter(Boolean);
+  if(!words.length)return false;
+  return value.length/words.length<=AI_IMPORT_PDF_MAX_CHARS_PER_WORD;
+}
+
+async function aiImportPageTextLayer(page){
+  try{
+    const content=await page.getTextContent();
+    return content.items.map(item=>item.str).join(" ").replace(/\s+/g," ").trim();
+  }catch{
+    // Eine unlesbare Textebene ist kein Grund, die Seite aufzugeben: sie wird
+    // dann als Bild ausgewertet.
+    return "";
+  }
+}
+
+async function aiImportPageImage(page){
+  const unscaled=page.getViewport({scale:1});
+  const fit=AI_IMPORT_MAX_EDGE/Math.max(unscaled.width,unscaled.height);
+  const viewport=page.getViewport({scale:Math.max(1,Math.min(2,fit))});
+  const canvas=document.createElement("canvas");
+  const context=canvas.getContext("2d",{alpha:false});
+  canvas.width=Math.ceil(viewport.width);
+  canvas.height=Math.ceil(viewport.height);
+  try{
+    await page.render({canvasContext:context,viewport}).promise;
+    return canvas.toDataURL("image/jpeg",0.85).replace(/^data:[^,]*,/,"");
+  }finally{
+    canvas.width=1;canvas.height=1;
+  }
 }
 
 async function aiImportExtractPDF(file){
+  if(!window.AIService)throw new Error("AIService ist nicht verfügbar.");
   const pdfjs=await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.mjs";
   const pdf=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
-  const pages=[];let worker=null;
-  try{
-    for(let p=1;p<=pdf.numPages;p++){
-      aiImportToast(`Verarbeite Seite ${p} von ${pdf.numPages}`);
-      const page=await pdf.getPage(p),tc=await page.getTextContent();
-      let text=tc.items.map(x=>x.str).join(" ").replace(/\s+/g," ").trim();
-      let extraction="PDF_TEXT";
-      if(text.length<20){
-        extraction="OCR";
-        const Tesseract=await aiImportTesseract();
-        if(!worker)worker=await Tesseract.createWorker("deu+eng",1);
-        const viewport=page.getViewport({scale:1.8});
-        const canvas=document.createElement("canvas"),ctx=canvas.getContext("2d",{alpha:false});
-        canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
-        await page.render({canvasContext:ctx,viewport}).promise;
-        const result=await worker.recognize(canvas);
-        text=String(result.data.text||"").replace(/\s+/g," ").trim();
-        canvas.width=1;canvas.height=1;
+  const pages=[];
+  const failed=[];
+  let announcedVision=false;
+
+  for(let number=1;number<=pdf.numPages;number++){
+    aiImportToast(`Verarbeite Seite ${number} von ${pdf.numPages}`);
+    try{
+      const page=await pdf.getPage(number);
+      const layer=await aiImportPageTextLayer(page);
+      if(aiImportTextLayerUsable(layer)){
+        pages.push({page:number,text:layer,extraction:"PDF_TEXT"});
+        continue;
       }
-      pages.push({page:p,text,extraction});
+      if(!announcedVision){
+        announcedVision=true;
+        const status=await window.AIService.status().catch(()=>null);
+        aiImportToast(status?.activeProvider==="CLOUD"
+          ? "Seiten ohne Text werden als Bild gelesen …"
+          : "Seiten ohne Text werden lokal per OCR gelesen, das dauert länger …");
+      }
+      const imageBase64=await aiImportPageImage(page);
+      const result=await window.AIService.analyzeImage({imageBase64,mimeType:"image/jpeg",note:`Seite ${number} aus „${file.name}“`});
+      const text=String(result?.text||"").replace(/\s+/g," ").trim();
+      if(text)pages.push({page:number,text,extraction:result?.provider==="CLOUD"?"AI_VISION":"OCR",imageKind:result?.kind||"OTHER"});
+      else if(layer)pages.push({page:number,text:layer,extraction:"PDF_TEXT_UNSICHER"});
+    }catch(error){
+      // Eine einzelne Seite darf einen Import ueber viele Seiten nicht kosten.
+      failed.push({page:number,reason:String(error?.message||error)});
     }
-  }finally{if(worker)await worker.terminate();}
+  }
+
+  if(!pages.length){
+    const first=failed[0];
+    throw new Error(first
+      ? `Keine Seite konnte gelesen werden. Seite ${first.page}: ${first.reason}`
+      : "Aus der Datei konnte kein Text extrahiert werden.");
+  }
+  if(failed.length)aiImportToast(`${failed.length} von ${pdf.numPages} Seiten konnten nicht gelesen werden`);
   return pages;
 }
 
@@ -122,8 +177,14 @@ function aiImportSourcePage(pages,answerKey){
 }
 
 const AI_IMPORT_SKIP_HEADINGS=/(inhaltsverzeichnis|literaturverzeichnis|quellenverzeichnis|abbildungsverzeichnis|tabellenverzeichnis|abkürzungsverzeichnis|stichwortverzeichnis|impressum|table of contents|bibliography)/i;
-const AI_IMPORT_MIN_WORDS=40;
-const AI_IMPORT_MAX_DIGIT_RATIO=0.2;
+// Eine Folie oder eine handschriftliche Mitschrift traegt oft nur ein Dutzend
+// Woerter und trotzdem den Kern des Stoffes. Mit 40 Woertern als Mindestmass
+// fiel genau dieses Material komplett durch die Pruefung.
+const AI_IMPORT_MIN_WORDS=12;
+// Tabellen mit Naehrwerten, Dosierungen oder Messreihen bestehen zu grossen
+// Teilen aus Ziffern und sind trotzdem Lernstoff. Aussortiert werden sollen nur
+// Seitenzahl-Wuesten und Register.
+const AI_IMPORT_MAX_DIGIT_RATIO=0.3;
 const AI_IMPORT_DUPLICATE_THRESHOLD=0.8;
 const AI_IMPORT_CARD_BATCH=20;
 
@@ -226,6 +287,10 @@ async function aiImportStudyFile(file){
   // wissen muss, welche Seiten ueberhaupt Lernstoff tragen sollten.
   const filterBulkPages=pages.length>1;
   for(const page of pages)page.relevant=filterBulkPages?aiImportHasLearningValue(page.text):true;
+  // Verwirft die Pruefung jede einzelne Seite, dann liegt der Fehler bei ihr und
+  // nicht am Material. Ein paar Aufrufe zu viel sind besser als ein Import, der
+  // schweigend nichts erzeugt.
+  if(!pages.some(page=>page.relevant))for(const page of pages)page.relevant=true;
   const documentRecord={id:aiImportUid(),moduleId:module.id,title:file.name,kind:file.name.split(".").pop()?.toUpperCase()||"TEXT",pages,createdAt:aiImportNow(),status:"READY",generationPipeline:"AIService"};
   let stored=false;
   try{

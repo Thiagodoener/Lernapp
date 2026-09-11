@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.26 — 11.09.2026
+## Version 3.27 — 11.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -121,6 +121,20 @@ Zielumfang:
 - Scan-Seiten verwenden OCR-Fallback.
 - Verarbeitung darf keine halbfertigen abhängigen Daten zurücklassen.
 - Importiertes Material muss wieder vollständig löschbar sein.
+- Eine einzelne unlesbare Seite darf einen mehrseitigen Import nicht verwerfen. Gescheiterte Seiten werden gezählt und gemeldet, der Rest wird verarbeitet.
+
+### Wann eine PDF-Seite als Bild gelesen wird
+
+Eine Textebene wird nur verwendet, wenn sie tatsächlich brauchbar ist. Zwei Fälle führen sonst zur Bildauswertung über `AIService.analyzeImage()`:
+
+- Die Seite trägt praktisch keinen Text, ist also Scan oder reine Grafik.
+- Die Textebene ist verklebt. PDFs aus iOS Notizen legen zu Handschrift eine Textebene ohne Leerzeichen ab („KörperunterteiltindreigroßenWelten"). Als Merkmal dient die Zeichenzahl pro Wort: echter Fließtext liegt bei etwa sieben, eine verklebte Ebene bei über zwanzig. Ab 15 gilt die Ebene als unbrauchbar.
+
+Damit landen Folien, Tafelbilder und handschriftliche Mitschriften im Bildverstehen statt in einer Textebene, aus der sich keine sinnvollen Lernziele bilden lassen.
+
+### Safari und ReadableStream
+
+Safari unterstützt bis heute keine asynchrone Iteration über einen `ReadableStream`. PDF.js liest die Textebene einer Seite genau so aus, weshalb der PDF-Import auf iPhone und iPad mit `undefined is not a function` abbrach, bevor eine einzige Seite ausgewertet war. `compat.js` ergänzt die fehlende Iteration auf Basis von `getReader()` und wird vor allen anderen Skripten geladen.
 
 **PWA-Status:** PDF/TXT/Markdown, PDF.js-Textextraktion und Tesseract-OCR-Fallback implementiert. Bildimport implementiert: im CLOUD-Modus über `AIService.analyzeImage()` mit Bildverstehen, im LOCAL-Modus über Tesseract-OCR. Bilder werden vor dem Versand clientseitig auf maximal 1600 px Kantenlänge verkleinert, um Kontingent und Anfragegröße zu begrenzen. Vollständige reale Gerätetests aller Materialtypen stehen aus.
 
@@ -838,6 +852,7 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | Module/Bibliothek | IMPLEMENTIERT |
 | PDF/TXT/MD Import | IMPLEMENTIERT |
 | PDF-Textextraktion | IMPLEMENTIERT |
+| Bildverstehen für PDF-Seiten ohne brauchbare Textebene | IMPLEMENTIERT |
 | OCR-Fallback | IMPLEMENTIERT, Geräte-Endtest offen |
 | Bildimport (Foto, Mitschrift, Folie, Skizze) | IMPLEMENTIERT, Geräte-Endtest offen |
 | Bildverstehen im CLOUD-Modus | IMPLEMENTIERT, Live-Test nach Deployment offen |
@@ -923,6 +938,17 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.27
+
+- PDF-Import auf iPhone und iPad repariert: Safari kennt keine asynchrone Iteration ueber ReadableStream, worauf PDF.js beim Lesen der Textebene sofort abbrach
+- Seiten ohne brauchbare Textebene laufen jetzt ueber AIService.analyzeImage statt ueber eine zweite OCR-Implementierung im Import
+- verklebte Textebenen aus iOS Notizen werden an der Zeichenzahl pro Wort erkannt und als Bild ausgewertet
+- Relevanzpruefung von 40 auf 12 Woerter gesenkt und Ziffernanteil auf 30 Prozent angehoben, weil Folien und Mitschriften sonst komplett verworfen wurden
+- verwirft die Relevanzpruefung jede Seite eines Dokuments, wird sie fuer dieses Dokument verworfen statt ein leeres Ergebnis zu liefern
+- eine gescheiterte Seite kostet nicht mehr den ganzen Import
+- Tesseract-Worker bleibt zwischen den Seiten eines Dokuments bestehen
+- Selbstcheck prueft jetzt auch nicht-modulare Skripte im Offline-Cache
 
 ## Changelog 3.26
 

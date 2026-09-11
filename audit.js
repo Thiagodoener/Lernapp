@@ -220,7 +220,7 @@ async function auditOfflineCache(){
   // Erwartet wird, was diese Seite tatsächlich lädt, statt einer zweiten Liste
   // neben dem Service Worker, die auseinanderlaufen könnte.
   const expected=[
-    ...[...document.querySelectorAll("script[type=module][src]")].map(s=>s.src),
+    ...[...document.querySelectorAll("script[src]")].map(s=>s.src),
     ...[...document.querySelectorAll('link[rel=stylesheet][href]')].map(l=>l.href)
   ];
   const missing=[];
