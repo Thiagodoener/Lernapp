@@ -281,79 +281,11 @@ function extractSentences(text) {
     .map(s=>s.trim())
     .filter(s=>s.length>=45 && s.length<=700);
 }
-async function addEvidence(goalId, dimension, score, confidence, independentRecall=true) {
-  const goal = await get("goals",goalId);
-  if (!goal) return;
-  await put("evidence",{
-    id:uid(), goalId, moduleId:goal.moduleId, dimension,
-    score:clamp(score), confidence:clamp(confidence),
-    independentRecall, createdAt:nowISO()
-  });
-  await recalcMastery(goalId);
-}
-async function recalcMastery(goalId) {
-  const ev = (await all("evidence")).filter(x=>x.goalId===goalId);
-  const existing = await get("mastery",goalId);
-  const dims = ["RECALL","UNDERSTANDING","APPLICATION","TRANSFER"];
-  const values={};
-  let confTotal=0, weightTotal=0;
-
-  for (const d of dims) {
-    const rows=ev.filter(x=>x.dimension===d);
-    let sw=0, ss=0;
-    for (const x of rows) {
-      const w=x.confidence*(x.independentRecall?1:0.5);
-      sw+=w; ss+=x.score*w;
-      confTotal+=x.confidence; weightTotal++;
-    }
-    values[d.toLowerCase()] = sw ? ss/sw : null;
-  }
-  const available=dims.map(d=>values[d.toLowerCase()]).filter(v=>v!==null);
-  const avg=available.length?available.reduce((a,b)=>a+b,0)/available.length:0;
-  const confidence=weightTotal?confTotal/weightTotal:0;
-  let status="NOT_ASSESSED";
-  if (ev.length) {
-    if (avg>=0.85 && confidence>=0.70 && ev.length>=2) status="MASTERED";
-    else if (avg>=0.70) status="PROFICIENT";
-    else if (avg>=0.45) status="DEVELOPING";
-    else status="WEAK";
-  }
-  const mastery={
-    ...(existing||{}), id:goalId, goalId,
-    moduleId:(existing?.moduleId)||((await get("goals",goalId))?.moduleId),
-    ...values, confidence, evidenceCount:ev.length, status, updatedAt:nowISO()
-  };
-  await put("mastery",mastery);
-  await recalcGap(goalId,mastery);
-}
-async function recalcGap(goalId,m) {
-  const current=(await all("gaps")).filter(g=>g.goalId===goalId && g.status==="OPEN");
-  let type=null, severity=0, reason="";
-  if (m.status==="NOT_ASSESSED") {
-    type="NOT_ASSESSED"; severity=.6; reason="Noch kein belastbarer Wissensnachweis.";
-  } else if ((m.recall??1)<.5) {
-    type="RECALL"; severity=1-(m.recall??0); reason="Aktiver Abruf ist noch nicht stabil.";
-  } else if ((m.understanding??1)<.5) {
-    type="UNDERSTANDING"; severity=1-(m.understanding??0); reason="Verständnis ist noch nicht stabil.";
-  } else if ((m.application??1)<.5) {
-    type="APPLICATION"; severity=1-(m.application??0); reason="Anwendung braucht weitere Übung.";
-  } else if ((m.transfer??1)<.5) {
-    type="TRANSFER"; severity=1-(m.transfer??0); reason="Transfer braucht weitere Übung.";
-  } else if (m.confidence<.5) {
-    type="UNCERTAIN"; severity=.5; reason="Wissensstand ist noch unsicher belegt.";
-  }
-  for (const g of current) {
-    if (g.type!==type) await put("gaps",{...g,status:"RESOLVED",resolvedAt:nowISO()});
-  }
-  if (type) {
-    const same=current.find(g=>g.type===type);
-    await put("gaps", same ? {...same,severity,reason,confidence:m.confidence} : {
-      id:uid(),goalId,moduleId:m.moduleId,type,severity,reason,
-      confidence:m.confidence,status:"OPEN",createdAt:nowISO()
-    });
-  } else {
-    for (const g of current) await put("gaps",{...g,status:"RESOLVED",resolvedAt:nowISO()});
-  }
+// Mastery, Stabilitaet und Wissensluecken liegen in mastery.js, damit die Regel
+// genau einmal existiert. Spec Kap. 3.3 und Kap. 32.
+async function addEvidence(entry) {
+  if (!window.LernappMastery) throw new Error("Lernlogik (mastery.js) ist nicht verfügbar.");
+  return window.LernappMastery.addEvidence(entry);
 }
 
 async function rateCard(card,rating,answerRevealed=true) {
@@ -383,13 +315,19 @@ async function rateCard(card,rating,answerRevealed=true) {
   });
   const score={1:0,2:.45,3:.75,4:.95}[rating];
   const conf={1:.60,2:.55,3:.60,4:.65}[rating];
-  await addEvidence(
-    card.goalId,
-    "RECALL",
+  // Die Selbsteinschaetzung aus dem Review ist eine Angabe des Lernenden, keine
+  // Bewertung durch ein Modell: Herkunft und Policy sagen das ausdruecklich.
+  await addEvidence({
+    goalId:card.goalId,
+    dimension:"RECALL",
     score,
-    conf,
-    !answerRevealed
-  );
+    confidence:conf,
+    independentRecall:!answerRevealed,
+    provider:"LOCAL",
+    policy:"SELF_RATING",
+    source:"FLASHCARD_REVIEW",
+    cardId:card.id
+  });
   await generatePlan();
 }
 async function createManualCard(goalId,prompt,answer) {
@@ -565,29 +503,48 @@ async function generatePlan() {
     return 30*urgency + (assessedGoalIds.has(goalId)?0:15*urgency);
   };
   const candidates=[];
+  const masteryOf=goalId=>mastery.find(x=>x.goalId===goalId);
 
   for (const gap of gaps) {
     const goal=goals.find(g=>g.id===gap.goalId);
     if(goal) candidates.push({
-      id:uid(),type:"GAP_REPAIR",goalId:goal.id,title:goal.statement,
-      minutes:8,score:85+gap.severity*25+examWeight(goal.id),reason:"Wissenslücke"
+      id:uid(),type:"REPAIR_KNOWLEDGE_GAP",goalId:goal.id,title:goal.statement,
+      minutes:8,score:85+gap.severity*25+examWeight(goal.id),
+      reason:`Wissenslücke · ${window.LernappMastery?.gapLabel(gap.type)||gap.type}`
     });
   }
   for (const card of cards.filter(c=>new Date(c.dueAt)<=new Date() && (c.reviewCount||0)>0)) {
     const goal=goals.find(g=>g.id===card.goalId);
     if(goal) candidates.push({
-      id:uid(),type:"REVIEW",goalId:goal.id,cardId:card.id,
+      id:uid(),type:"REVIEW_FLASHCARD",goalId:goal.id,cardId:card.id,
       title:card.prompt,minutes:4,score:78+examWeight(goal.id),reason:"Wiederholung fällig"
     });
   }
+  // Kap. 12: Lesen allein belegt nichts. Ein Lernziel, zu dem zwar Evidence
+  // vorliegt, aber nicht in allen Dimensionen, braucht eine eigene Pruefaufgabe,
+  // sonst bliebe die Assessment Coverage aus Kap. 13 dauerhaft unvollstaendig.
   for (const goal of goals) {
-    const m=mastery.find(x=>x.goalId===goal.id);
+    const m=masteryOf(goal.id);
+    if(!m||m.status==="NOT_ASSESSED"||m.status==="MASTERED")continue;
+    const offen=["recall","understanding","application","transfer"].filter(d=>m[d]===null||m[d]===undefined);
+    if(!offen.length)continue;
+    candidates.push({
+      id:uid(),type:"ASSESS",goalId:goal.id,title:goal.statement,
+      minutes:6,score:74+offen.length*2+examWeight(goal.id),
+      reason:`Wissensstand prüfen · ${offen.length} Dimension${offen.length===1?"":"en"} offen`
+    });
+  }
+  for (const goal of goals) {
+    const m=masteryOf(goal.id);
     if (!m || ["NOT_ASSESSED","WEAK","DEVELOPING"].includes(m.status)) {
       const inScope=exam&&scopeGoalIds.has(goal.id);
+      // Ein zerfallender Stand ist dringlicher als ein nie geprueftes Lernziel:
+      // hier geht bereits Erarbeitetes wieder verloren. Kap. 6 und Kap. 14.
+      const decay=m?.stability==="DECAYING"?10:0;
       candidates.push({
-        id:uid(),type:"LEARN",goalId:goal.id,title:goal.statement,
-        minutes:8,score:(m?.status==="WEAK"?82:65)+examWeight(goal.id),
-        reason:m?.status==="WEAK"?"Schwachstelle":inScope?"Prüfungsstoff, noch nicht geprüft":"Noch nicht geprüft"
+        id:uid(),type:"LEARN_NEW",goalId:goal.id,title:goal.statement,
+        minutes:8,score:(m?.status==="WEAK"?82:65)+decay+examWeight(goal.id),
+        reason:m?.stability==="DECAYING"?"Stand zerfällt":m?.status==="WEAK"?"Schwachstelle":inScope?"Prüfungsstoff, noch nicht geprüft":"Noch nicht geprüft"
       });
     }
   }
@@ -741,13 +698,17 @@ async function submitExamItem(session,index,response) {
   item.response = response;
   item.score = score;
   item.answeredAt = nowISO();
-  await addEvidence(
-    item.goalId,
-    item.dimension,
+  await addEvidence({
+    goalId:item.goalId,
+    dimension:item.dimension,
     score,
-    .35,
-    true
-  );
+    confidence:.35,
+    independentRecall:true,
+    provider:"LOCAL",
+    policy:"LOCAL_TOKEN_OVERLAP",
+    source:"EXAM_SIMULATION",
+    examSessionId:session.id
+  });
   await put("examSessions",session);
   return score;
 }
@@ -876,6 +837,16 @@ async function render() {
   return renderProfile();
 }
 
+// Die Aufgabenarten heissen nach Kap. 12 im Datensatz, in der Oberflaeche steht
+// die deutsche Bezeichnung: der Nutzer soll keine Konstanten lesen muessen.
+const TASK_LABELS=Object.freeze({
+  LEARN_NEW:"Neu lernen",
+  REVIEW_FLASHCARD:"Wiederholen",
+  REPAIR_KNOWLEDGE_GAP:"Lücke schließen",
+  ASSESS:"Prüfen"
+});
+function taskLabel(type){return TASK_LABELS[type]||String(type||"");}
+
 async function renderToday() {
   const module=await activeModule();
   let plan=await get("plans",`${module.id}:${dayKey()}`) || await generatePlan();
@@ -887,6 +858,8 @@ async function renderToday() {
     return a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
   }).reduce((a,b)=>a+b,0)/assessed.length : 0;
   const done=plan.tasks.filter(t=>t.status==="DONE").length;
+  const openGaps=(await all("gaps")).filter(x=>x.moduleId===module.id && x.status==="OPEN");
+  const dueCards=(await all("flashcards")).filter(x=>x.moduleId===module.id && new Date(x.dueAt)<=new Date());
   const upcoming=await nextExam(module.id);
   const readiness=upcoming?await examReadiness(upcoming):null;
 
@@ -899,6 +872,8 @@ async function renderToday() {
     <div class="grid">
       <section class="card metric"><span class="muted small">Lernserie</span><strong>${s.current}</strong><span class="small">Tage · Bestwert ${s.longest}</span></section>
       <section class="card metric"><span class="muted small">Mastery</span><strong>${Math.round(avg*100)}%</strong><span class="small">${assessed.length} Lernziele geprüft</span></section>
+      <section class="card metric"><span class="muted small">Schwächen</span><strong>${openGaps.length}</strong><span class="small">${openGaps.length?esc(window.LernappMastery?.gapLabel(openGaps[0].type)||openGaps[0].type)+" zuerst":"keine offene Lücke"}</span></section>
+      <section class="card metric"><span class="muted small">Fällig</span><strong>${dueCards.length}</strong><span class="small">Karten zur Wiederholung</span></section>
       ${readiness?`<section class="card metric"><span class="muted small">Prüfungsbereit</span><strong>${Math.round(readiness.score*100)}%</strong><span class="small">${esc(readiness.exam.title)} · ${esc(examCountdown(readiness.exam))}</span></section>`:""}
     </div>
     <section class="card">
@@ -910,7 +885,7 @@ async function renderToday() {
             <strong>${esc(t.title)}</strong>
             <div class="small muted">${esc(t.reason)} · ${t.minutes} Min</div>
           </div>
-          <span class="badge">${esc(t.type)}</span>
+          <span class="badge">${esc(taskLabel(t.type))}</span>
         </div>`).join(""):`<div class="empty">Importiere Lernmaterial in der Bibliothek.</div>`}
     </section>
     <section class="card">
@@ -982,6 +957,8 @@ async function openGoal(id) {
     <hr>
     <div class="row between"><strong>Status</strong><span class="badge ${m?.status==="MASTERED"?"good":m?.status==="WEAK"?"danger":"warn"}">${esc(m?.status||"NOT_ASSESSED")}</span></div>
     <p class="small muted">Evidence ${m?.evidenceCount||0} · Confidence ${Math.round((m?.confidence||0)*100)}%</p>
+    <div class="row between"><strong>Stabilität</strong><span class="badge ${m?.stability==="STABLE"?"good":m?.stability==="DECAYING"?"danger":"warn"}">${esc({STABLE:"Verankert",UNSTABLE:"Noch nicht verankert",DECAYING:"Zerfällt",UNKNOWN:"Ohne Wiederholung"}[m?.stability||"UNKNOWN"])}</span></div>
+    <p class="small muted">Aus den FSRS-Intervallen der Karten zu diesem Lernziel · ${Math.round(Number(m?.stabilityDays)||0)} Tage</p>
     ${gap?`<p class="small"><strong>Wissenslücke:</strong> ${esc(gap.reason)}</p>`:""}
     <hr>
     <h3>Selbsttest</h3>
@@ -1119,6 +1096,23 @@ async function renderProgress() {
   const moduleContent=contentCoverage(documents,goals);
   const moduleAssessment=assessmentCoverage(goals,evidence);
   const s=await streak();
+  const cards=(await all("flashcards")).filter(c=>c.moduleId===module.id);
+  const dueCards=cards.filter(c=>new Date(c.dueAt)<=new Date());
+  const moduleEvidence=evidence.filter(e=>e.moduleId===module.id);
+  const evidenceConfidence=moduleEvidence.length
+    ? moduleEvidence.reduce((sum,e)=>sum+(Number(e.confidence)||0),0)/moduleEvidence.length
+    : 0;
+  const independentShare=moduleEvidence.length
+    ? moduleEvidence.filter(e=>e.independentRecall).length/moduleEvidence.length
+    : 0;
+  // Kap. 6: die Stabilitaet eines Lernziels ist eine eigene Groesse neben dem
+  // Mastery-Status und wird hier so ausgewiesen.
+  const stabilityLabels={STABLE:"Verankert",UNSTABLE:"Noch nicht verankert",DECAYING:"Zerfällt",UNKNOWN:"Ohne Wiederholung"};
+  const stabilityCounts={STABLE:0,UNSTABLE:0,DECAYING:0,UNKNOWN:0};
+  for(const m of ms)stabilityCounts[m.stability||"UNKNOWN"]=(stabilityCounts[m.stability||"UNKNOWN"]||0)+1;
+  const simulations=(await all("examSessions"))
+    .filter(x=>x.moduleId===module.id&&x.status==="COMPLETED")
+    .sort((a,b)=>String(b.completedAt||"").localeCompare(String(a.completedAt||"")));
   const dims=["recall","understanding","application","transfer"];
   const dimLabels={recall:"Abruf",understanding:"Verständnis",application:"Anwendung",transfer:"Transfer"};
   const averages={};
@@ -1167,6 +1161,17 @@ async function renderProgress() {
     <section class="card"><h2>Wissensdimensionen</h2>
       ${dims.map(d=>`<div class="list-item"><div class="row between"><span>${dimLabels[d]}</span><strong>${Math.round(averages[d]*100)}%</strong></div><div class="progress-track"><div class="progress-fill" style="width:${averages[d]*100}%"></div></div></div>`).join("")}
     </section>
+    <section class="card"><h2>Stabilität der Lernziele</h2>
+      ${Object.entries(stabilityCounts).map(([key,count])=>`<div class="row between"><span>${esc(stabilityLabels[key]||key)}</span><strong>${count}</strong></div>`).join("")}
+      <p class="small muted">Verankert ab einem FSRS-Intervall von ${window.LernappMastery?.stabilityTargetDays||30} Tagen. „Zerfällt“ heißt: eine Wiederholung ist deutlich überfällig oder zuletzt misslungen.</p>
+    </section>
+    <section class="card"><h2>Assessments</h2>
+      <div class="row between"><span>Erfasste Nachweise</span><strong>${moduleEvidence.length}</strong></div>
+      <div class="row between"><span>Mittlere Confidence</span><strong>${Math.round(evidenceConfidence*100)}%</strong></div>
+      <div class="row between"><span>Davon unabhängiger Abruf</span><strong>${Math.round(independentShare*100)}%</strong></div>
+      <div class="row between"><span>Fällige Wiederholungen</span><strong>${dueCards.length}</strong></div>
+      <p class="small muted">Wiedererkennung und angezeigte Antworten zählen nur halb, weil sie keinen freien Abruf belegen.</p>
+    </section>
     <section class="card">
       <h2>Verlauf</h2>
       ${trendRow("Mastery",history,"mastery")}
@@ -1181,9 +1186,13 @@ async function renderProgress() {
       <p class="small muted">Bis zu 12 priorisierte Fragen, 30 Minuten. Unbeantwortete Fragen zählen als 0; Schwächen fließen zurück in Mastery und Tagesplan.</p>
       <button class="primary full" id="start-exam">Prüfung starten</button>
       <button class="secondary full" id="resume-exam">Aktive Prüfung fortsetzen</button>
+      ${simulations.length?simulations.slice(0,5).map(x=>`<div class="list-item">
+        <div class="row between"><strong>${Math.round((x.overallScore||0)*100)}%</strong><span class="badge">${esc(x.completedAt?dayKey(x.completedAt):"ohne Datum")}</span></div>
+        <div class="small muted">${x.answeredCount||0} von ${x.items?.length||0} beantwortet · ${x.weakGoalIds?.length||0} schwache Lernziele</div>
+      </div>`).join(""):`<div class="empty">Noch keine abgeschlossene Simulation.</div>`}
     </section>
     <section class="card"><h2>Wissenslücken</h2>
-      ${gaps.length?gaps.slice(0,20).map(g=>`<div class="list-item clickable" data-open-goal="${g.goalId}"><strong>${esc(g.type)}</strong><div class="small muted">${esc(g.reason)}</div></div>`).join(""):`<div class="empty">Keine offenen Wissenslücken.</div>`}
+      ${gaps.length?gaps.slice(0,20).map(g=>`<div class="list-item clickable" data-open-goal="${g.goalId}"><strong>${esc(window.LernappMastery?.gapLabel(g.type)||g.type)}</strong><div class="small muted">${esc(g.reason)}</div></div>`).join(""):`<div class="empty">Keine offenen Wissenslücken.</div>`}
     </section>`;
   $("#add-exam")?.addEventListener("click",()=>showExamForm());
   content.querySelectorAll("[data-delete-exam]").forEach(button=>{
@@ -1210,9 +1219,24 @@ async function renderProgress() {
   bindGoalLinks();
 }
 
+// Kap. 23: Proxy-Endpunkt und Zugriffsschluessel gehoeren zum Geraet. Im Backup
+// haetten sie zwei Folgen: der persoenliche Schluessel laege im Klartext in einer
+// Datei, und ein Restore vom anderen Geraet wuerde die eigene Verbindung
+// ueberschreiben. Der Abgleich haelt sich an dieselbe Regel.
+const DEVICE_LOCAL_SETTINGS=["cloudEndpoint","cloudAccessToken"];
+
+function withoutDeviceLocalSettings(rows) {
+  return rows.map(row => {
+    if(row?.id!=="app") return row;
+    const copy={...row};
+    for(const field of DEVICE_LOCAL_SETTINGS) delete copy[field];
+    return copy;
+  });
+}
+
 async function exportBackup() {
   const data={version:1,exportedAt:nowISO(),stores:{}};
-  for(const s of STORES) data.stores[s]=await all(s);
+  for(const s of STORES) data.stores[s]=s==="settings"?withoutDeviceLocalSettings(await all(s)):await all(s);
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a"); a.href=url;a.download=`lernapp-backup-${dayKey()}.json`;a.click();
@@ -1221,9 +1245,20 @@ async function exportBackup() {
 async function importBackup(file) {
   const data=JSON.parse(await file.text());
   if(!data?.stores) throw new Error("Ungültiges Lernapp-Backup.");
+  // Die Cloud-Verbindung dieses Geraets ueberlebt den Restore, auch wenn das
+  // Backup von einem anderen Geraet stammt.
+  const ownApp=await get("settings","app");
   for(const s of STORES) {
     await clearStore(s);
     for(const item of data.stores[s]||[]) await put(s,item);
+  }
+  if(ownApp) {
+    const restored=await get("settings","app");
+    const patch={...(restored||{}),id:"app"};
+    for(const field of DEVICE_LOCAL_SETTINGS) {
+      if(ownApp[field]!==undefined) patch[field]=ownApp[field];
+    }
+    await put("settings",patch);
   }
   state.moduleId=(await all("modules"))[0]?.id||null;
   toast("Backup wiederhergestellt");

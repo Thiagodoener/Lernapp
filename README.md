@@ -9,13 +9,14 @@ Kostenloser, offline-first Personal Mode für iPhone/iPad und moderne Browser.
 - Offline App Shell via Service Worker
 - Module / Bibliothek
 - PDF-, TXT- und Markdown-Import
-- PDF-Textextraktion über fest versioniertes PDF.js 6.3.289
+- PDF-Textextraktion über PDF.js 4.10.38 (legacy-Build) aus `vendor/`
 - quellenbezogene Zusammenfassungen / Highlights
 - automatische Lernziele
 - automatische und manuelle Karteikarten
 - lokale Reviews mit echtem FSRS 6 (ts-fsrs 5.4.1)
 - Tesseract.js 7 OCR für Scan-PDF-Seiten
-- konservative Evidence-/Mastery-Berechnung
+- konservative Evidence-/Mastery-Berechnung in vier Wissensdimensionen
+- Stabilität je Lernziel aus den FSRS-Intervallen
 - Knowledge Gaps
 - Tagesplan
 - lokale Prüfungssimulation mit 30-Minuten-Timer
@@ -33,15 +34,16 @@ Kostenloser, offline-first Personal Mode für iPhone/iPad und moderne Browser.
   semantische KI.
 - SpeechRecognition ist eine Browserfunktion. Wenn sie auf einem Gerät oder
   Browser nicht verfügbar ist, bleibt die Texteingabe vollständig nutzbar.
-- OCR/FSRS-Bibliotheken werden bei der ersten Nutzung über fest versionierte
-  HTTPS-Quellen geladen und anschließend vom Service Worker gecacht.
+- PDF.js samt Worker und Standardschriften sowie ts-fsrs liegen in `vendor/`
+  und funktionieren ohne Netz. Nur Tesseract.js wird bei der ersten Nutzung
+  über eine fest versionierte HTTPS-Quelle geladen und danach gecacht; seine
+  Sprachdaten würden den Umfang des Repositorys sprengen.
 
 ## Lokal testen
 
 Ein Service Worker funktioniert nur über HTTP(S), nicht zuverlässig über `file://`.
 
 ```bash
-cd pwa
 python3 -m http.server 8080
 ```
 

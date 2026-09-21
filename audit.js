@@ -145,6 +145,10 @@ function auditDuplicates(data){
     problems);
 }
 
+const MASTERY_STABILITY_STATES=new Set(["UNKNOWN","UNSTABLE","STABLE","DECAYING"]);
+// Kap. 11: genau diese Typen sind zulaessig.
+const GAP_TYPES=new Set(["CRITICAL_NOT_ASSESSED","RECALL_FAILURE","UNDERSTANDING_FAILURE","APPLICATION_FAILURE","TRANSFER_FAILURE","HIGH_UNCERTAINTY"]);
+
 function auditMasteryInvariants(data){
   const problems=[];
   const masteryByGoal=new Map(data.mastery.map(m=>[m.goalId,m]));
@@ -159,11 +163,21 @@ function auditMasteryInvariants(data){
     const values=[mastery.recall,mastery.understanding,mastery.application,mastery.transfer].filter(v=>v!==null&&v!==undefined);
     if(values.some(v=>!Number.isFinite(v)||v<0||v>1))problems.push(`Mastery-Wert außerhalb von 0 bis 1: ${goal.statement||goal.id}`);
     if(!actual&&mastery.status!=="NOT_ASSESSED")problems.push(`Status ${mastery.status} ohne jede Evidence: ${goal.statement||goal.id}`);
+    // Kap. 6: die Stabilitaet ist eine eigene Groesse und muss einen der vier
+    // Zustaende tragen. Fehlt sie, ist der Datensatz aus einer aelteren Fassung.
+    if(!MASTERY_STABILITY_STATES.has(mastery.stability||"UNKNOWN"))problems.push(`Unbekannter Stabilitätszustand "${mastery.stability}": ${goal.statement||goal.id}`);
     // Kap. 6: MASTERED nur bei ausreichender Evidence und Confidence.
     if(mastery.status==="MASTERED"){
       const average=values.length?values.reduce((a,b)=>a+b,0)/values.length:0;
       if(actual<2||(mastery.confidence||0)<0.7||average<0.85)problems.push(`MASTERED ohne ausreichende Belege: ${goal.statement||goal.id}`);
     }
+  }
+  // Kap. 10: ohne Herkunft, Policy und Quelle laesst sich eine Evidence nicht
+  // mehr beurteilen. Kap. 32 verlangt genau diese Nachvollziehbarkeit.
+  const incomplete=data.evidence.filter(e=>!e.evaluationProvider||!e.evaluationPolicy||!e.source);
+  if(incomplete.length)problems.push(`${incomplete.length} Evidenzen ohne Herkunft, Policy oder Quelle (Kap. 10)`);
+  for(const gap of data.gaps){
+    if(gap.status==="OPEN"&&!GAP_TYPES.has(gap.type))problems.push(`Wissenslücke mit unbekanntem Typ "${gap.type}"`);
   }
   return finding("mastery","Mastery-Invarianten",problems.length?"FAIL":"OK",
     problems.length?`${problems.length} Verstöße gegen die Mastery-Regeln.`:"Mastery ist mit der Evidence konsistent.",

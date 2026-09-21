@@ -7,7 +7,6 @@ const QUIZ_MIN_DISTRACTORS=2;
 function quizOpenDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(QUIZ_DB,QUIZ_DB_VERSION);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
 async function quizAll(store){const db=await quizOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readonly"),r=tx.objectStore(store).getAll();r.onsuccess=()=>resolve(r.result||[]);r.onerror=()=>reject(r.error);tx.oncomplete=()=>db.close();});}
 async function quizGet(store,id){const db=await quizOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readonly"),r=tx.objectStore(store).get(id);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);tx.oncomplete=()=>db.close();});}
-async function quizPut(store,value){const db=await quizOpenDB();value={...value,updatedAt:new Date().toISOString()};return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readwrite");tx.objectStore(store).put(value);tx.oncomplete=()=>{db.close();resolve(value);};tx.onerror=()=>{db.close();reject(tx.error);};});}
 
 function quizEsc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
 function quizToast(message){const el=document.createElement("div");el.className="toast";el.textContent=message;document.body.appendChild(el);setTimeout(()=>el.remove(),2400);}
@@ -117,21 +116,18 @@ async function quizRecordAnswer(cardId,isCorrect){
   if(!card?.goalId)return;
   const goal=await quizGet("goals",card.goalId);
   if(!goal)return;
-  await quizPut("evidence",{
-    id:crypto.randomUUID(),
+  if(!window.LernappMastery){console.warn("Lernlogik (mastery.js) ist nicht verfügbar.");return;}
+  await window.LernappMastery.addEvidence({
     goalId:goal.id,
-    moduleId:goal.moduleId,
     dimension:"RECALL",
     score:isCorrect?1:0,
     confidence:.45,
     independentRecall:false,
-    createdAt:new Date().toISOString(),
+    provider:"LOCAL",
+    policy:"OBJECTIVE",
     source:"MULTIPLE_CHOICE",
-    evaluationProvider:"LOCAL",
-    evaluationPolicy:"OBJECTIVE",
     cardId
   });
-  await window.LernappFreeAnswerAI?.recalcMastery(goal.id).catch(()=>{});
   await window.LernappFreeAnswerAI?.invalidateTodayPlan(goal.moduleId).catch(()=>{});
 }
 

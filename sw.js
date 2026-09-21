@@ -1,9 +1,9 @@
-const VERSION = "v23";
+const VERSION = "v24";
 const CACHE = `lernapp-pwa-${VERSION}`;
 
 // Diese Dateien aendern sich mit jeder Korrektur.
 const APP_FILES = [
-  "./","./index.html","./styles.css","./compat.js","./app.js","./ai-service.js","./import-ai.js",
+  "./","./index.html","./styles.css","./compat.js","./app.js","./ai-service.js","./mastery.js","./import-ai.js",
   "./appearance.js","./profile-ai-mode.js","./cloud-settings.js","./ai-usage.js","./audit.js",
   "./summaries-ai.js","./free-answer-ai.js","./exam-ai.js","./tutor-ai.js","./material-delete.js",
   "./quiz.js","./sync.js",
@@ -13,7 +13,14 @@ const APP_FILES = [
 // Bibliotheken haengen an ihrer Version und aendern sich nie. Sie sind gross,
 // deshalb darf ein Fehlschlag beim Vorabladen die Installation nicht kosten.
 const VENDOR_FILES = [
-  "./vendor/pdf.mjs","./vendor/pdf.worker.mjs","./vendor/ts-fsrs.mjs"
+  "./vendor/pdf.mjs","./vendor/pdf.worker.mjs","./vendor/ts-fsrs.mjs",
+  // Ohne die Standardschriften scheitert das Rendern von PDFs, die ihre
+  // Schriften nicht einbetten, beim ersten Gebrauch ohne Netz.
+  ...["FoxitDingbats","FoxitFixed","FoxitFixedBold","FoxitFixedBoldItalic","FoxitFixedItalic",
+      "FoxitSerif","FoxitSerifBold","FoxitSerifBoldItalic","FoxitSerifItalic","FoxitSymbol"]
+    .map(name=>`./vendor/standard_fonts/${name}.pfb`),
+  ...["LiberationSans-Regular","LiberationSans-Bold","LiberationSans-Italic","LiberationSans-BoldItalic"]
+    .map(name=>`./vendor/standard_fonts/${name}.ttf`)
 ];
 
 const NETWORK_TIMEOUT_MS = 4000;

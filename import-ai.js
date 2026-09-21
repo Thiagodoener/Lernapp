@@ -255,7 +255,7 @@ async function aiImportGenerateGoals(pages,documentRecord,module){
         generationConfidence:Number.isFinite(result?.confidence)?result.confidence:null
       };
       await aiImportPut("goals",goal);
-      await aiImportPut("mastery",{id:goal.id,goalId:goal.id,moduleId:module.id,recall:null,understanding:null,application:null,transfer:null,confidence:0,evidenceCount:0,status:"NOT_ASSESSED",updatedAt:aiImportNow()});
+      await aiImportPut("mastery",{id:goal.id,goalId:goal.id,moduleId:module.id,recall:null,understanding:null,application:null,transfer:null,confidence:0,evidenceCount:0,status:"NOT_ASSESSED",stability:"UNKNOWN",stabilityDays:0,updatedAt:aiImportNow()});
       created.push(goal);
     }
   }

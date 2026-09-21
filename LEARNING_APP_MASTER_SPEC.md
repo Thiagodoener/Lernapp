@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.29 — 11.09.2026
+## Version 3.30 — 21.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -234,7 +234,18 @@ Stabilität:
 - STABLE
 - DECAYING
 
+Die Stabilität ist eine eigene Größe neben dem Status und wird je Lernziel aus den FSRS-Intervallen seiner Karteikarten abgeleitet, nicht aus der Bewertung einzelner Antworten:
+
+- **UNKNOWN** – zu diesem Lernziel wurde noch keine Karte wiederholt.
+- **DECAYING** – eine Wiederholung ist mehr als 7 Tage überfällig, oder eine Karte ist zurückgefallen und steht wieder unter 7 Tagen Intervall. Sieben Tage, damit ein verpasstes Wochenende nicht sofort einen Zerfall meldet.
+- **STABLE** – das mittlere Intervall erreicht die 30 Tage aus Kapitel 15.
+- **UNSTABLE** – alles dazwischen.
+
+Ein zerfallender Stand wird im Tagesplan höher gewichtet als ein nie geprüftes Lernziel, weil dort bereits Erarbeitetes wieder verloren geht.
+
 Grundregel: `MASTERED` darf nur bei ausreichender Evidence und ausreichender Confidence entstehen. Niedrig-konfidente lokale Heuristiken dürfen allein kein MASTERED erzeugen.
+
+Mastery, Stabilität und Wissenslücken werden an genau einer Stelle berechnet (`mastery.js`). Zwei Fassungen derselben Lernregel in verschiedenen Modulen laufen unweigerlich auseinander; Kapitel 3.3 und Kapitel 32 verlangen das Gegenteil.
 
 ## 7. Zusammenfassungen und Highlights
 
@@ -330,6 +341,8 @@ Evidence enthält mindestens:
 - Zeit/Quelle
 - Independent-Recall-Information
 
+Das gilt für jede Herkunft, auch für die Selbsteinschätzung im Review (`SELF_RATING`), das Multiple-Choice-Ergebnis (`OBJECTIVE`) und die lokale Prüfungsauswertung. Ohne diese Felder ließe sich ein Wissensstand später nicht mehr beurteilen; der Selbstcheck meldet unvollständige Evidenzen.
+
 ### Multiple Choice
 
 Das Quiz entsteht aus den vorhandenen Karteikarten und fragt zuerst die schwächsten Lernziele ab. Die falschen Antwortmöglichkeiten liefert `AIService.generateChoiceOptions()`; im LOCAL-Modus und bei jedem Cloud-Fehler entstehen sie aus den Antworten der übrigen Karten desselben Moduls. Optionen, die der richtigen Antwort zu ähnlich sind, werden verworfen, damit keine zweite richtige Antwort entsteht.
@@ -350,6 +363,8 @@ Lokale Gap-Typen umfassen:
 - APPLICATION_FAILURE
 - TRANSFER_FAILURE
 - HIGH_UNCERTAINTY
+
+Es gilt genau der erste zutreffende Typ dieser Reihenfolge; der Selbstcheck meldet jede offene Wissenslücke, die einen anderen Typ trägt. Eine Dimension ohne jede Evidence gilt nicht als Fehlschlag, sondern wird über die Aufgabenart `ASSESS` des Lernplans geprüft.
 
 Wissenslücken fließen automatisch zurück in den Lernplan.
 
@@ -374,12 +389,14 @@ Er berücksichtigt mindestens:
 
 Task-Arten umfassen mindestens:
 
-- LEARN_NEW
-- REVIEW_FLASHCARD
-- REPAIR_KNOWLEDGE_GAP
-- Assessment-/Prüfaktivitäten
+- `LEARN_NEW`
+- `REVIEW_FLASHCARD`
+- `REPAIR_KNOWLEDGE_GAP`
+- `ASSESS` als Assessment-/Prüfaktivität
 
-Ein `LEARN_NEW`-Task gilt nicht allein durch Lesen als fachlich beherrscht; Assessment muss Evidence liefern.
+Ein `LEARN_NEW`-Task gilt nicht allein durch Lesen als fachlich beherrscht; Assessment muss Evidence liefern. Deshalb erhält jedes Lernziel, zu dem zwar Evidence vorliegt, aber nicht in allen vier Dimensionen, eine eigene `ASSESS`-Aufgabe. Ohne sie bliebe die Assessment Coverage aus Kapitel 13 dauerhaft unvollständig, weil ein einmal geprüftes Lernziel sonst nie wieder im Plan erscheint. Beherrschte Lernziele erzeugen keine Prüfaufgabe.
+
+Je Lernziel steht höchstens eine Aufgabe im Tagesplan; die höchstbewertete gewinnt. Die Typbezeichnungen stehen im Datensatz, die Oberfläche zeigt deutsche Bezeichnungen.
 
 Der Plan wird nach neuer relevanter Evidence, Importen und Prüfungsergebnissen neu bewertet.
 
@@ -522,7 +539,9 @@ SHOULD:
 
 Pro Modul und Lerntag wird ein Messpunkt mit Mastery, Content Coverage, Assessment Coverage und Prüfungsbereitschaft festgehalten, sobald der Fortschritt geöffnet wird. Mehrfaches Öffnen an einem Tag überschreibt den Messpunkt, statt Duplikate anzulegen. Der Verlauf zeigt je Kennzahl den aktuellen Stand, die Veränderung in Prozentpunkten seit dem ersten Messpunkt und eine Sparkline auf fester Skala von 0 bis 100 Prozent. Eine automatische Skalierung ist ausdrücklich nicht gewollt, weil sie kleine Schwankungen wie große Fortschritte aussehen ließe.
 
-**Status:** mehrere Analytics-Metriken implementiert, Verlauf über die Zeit implementiert. Vollständige PWA-UX-Parität im Endaudit prüfen.
+Der Fortschritt weist zusätzlich aus, wie viele Nachweise erfasst wurden, mit welcher mittleren Confidence und welcher Anteil davon unabhängiger Abruf war, wie viele Wiederholungen fällig sind, wie sich die Lernziele auf die vier Stabilitätszustände verteilen und wie die abgeschlossenen Prüfungssimulationen ausgegangen sind.
+
+**Status:** implementiert. Offen bleiben die SHOULD-Kennzahlen Lernzeit, Antwortzeiten, Performance nach Fragetyp und Planerfüllung.
 
 ## 20. Gamification
 
@@ -556,6 +575,10 @@ Er soll auf einen Blick beantworten:
 
 Priorität ist geringe Reibung: möglichst wenige Schritte bis zur nächsten sinnvollen Lernaktivität.
 
+Die vier Fragen werden als Kennzahlen beantwortet: Tageserfüllung, Lernserie, Mastery, offene Schwächen mit der dringendsten Lückenart, fällige Karten und – sobald ein Termin eingetragen ist – die Prüfungsbereitschaft.
+
+**Status:** implementiert.
+
 ## 22. Bibliothek
 
 Bibliothek verwaltet Module und Materialien.
@@ -586,6 +609,8 @@ MUST:
 
 Vor destruktiven Aktionen soll Backup empfohlen bzw. ermöglicht werden.
 
+Proxy-Endpunkt und Zugriffsschlüssel gehören zum Gerät und stehen deshalb weder im Backup noch im Abgleich. Sonst läge der persönliche Schlüssel im Klartext in einer Datei, und ein Restore vom anderen Gerät würde die eigene Verbindung überschreiben. Beim Wiedereinlesen behält das Gerät seine eigene Verbindung.
+
 ### Abgleich zwischen Geräten
 
 Der Abgleich ist optional und läuft über denselben eigenen Cloud-Proxy wie die KI-Aufgaben. Er verbraucht kein KI-Kontingent und wird von dessen Tageslimit auch nicht blockiert. Ohne eingerichteten Proxy bleibt die App unverändert nutzbar; der Lernstand liegt dann wie bisher nur auf dem jeweiligen Gerät.
@@ -600,7 +625,7 @@ Regeln:
 - Das leere Standardmodul eines frisch installierten Geräts weicht beim ersten Abgleich dem bereits vorhandenen Modul, damit nicht zwei Module nebeneinander stehen.
 - Nutzungsprotokoll und Fortschrittsverlauf werden vereinigt statt überschrieben, weil beide Geräte eigene Einträge sammeln.
 
-**Status:** PWA JSON Backup/Restore implementiert. Geräteabgleich implementiert; er benötigt im Worker zusätzlich die KV-Bindung `LERNAPP_SYNC`.
+**Status:** PWA JSON Backup/Restore implementiert. Geräteabgleich implementiert; der KV-Namespace ist angelegt und in `wrangler.toml` als `LERNAPP_SYNC` gebunden. Offen bleibt der Durchlauf mit zwei echten Geräten.
 
 ## 24. Betriebsmodi
 
@@ -636,6 +661,7 @@ Zentrale Schnittstellen:
 - `generateFlashcards`
 - `evaluateFreeAnswer`
 - `analyzeImage`
+- `generateChoiceOptions`
 
 Alle semantischen KI-Funktionen müssen über diese Abstraktion laufen, damit LOCAL/AUTO/CLOUD austauschbar bleiben. Das gilt ausdrücklich auch für die Bildanalyse: `analyzeImage` besitzt eine kostenfreie LOCAL-Implementierung über Tesseract-OCR und eine CLOUD-Implementierung mit Bildverstehen.
 
@@ -675,7 +701,10 @@ Unterstützte Tasks:
 - generateFlashcards
 - evaluateFreeAnswer
 - analyzeImage
+- generateChoiceOptions
 - health
+
+Daneben bedient derselbe Worker die Aufgaben `syncPull` und `syncPush` des Geräteabgleichs. Sie sind kein Modellaufruf, verbrauchen kein KI-Kontingent und liegen deshalb außerhalb der Tasktabelle.
 
 ### Kontingent und Kosten
 
@@ -753,7 +782,9 @@ Die persönliche Hauptversion ist als installierbare PWA ausgelegt:
 
 Externe Browserbibliotheken können beim ersten Abruf Internet benötigen und werden danach soweit möglich gecacht. Vollständige Offline-Fähigkeit insbesondere von OCR/PDF/FSRS muss auf realem Gerät geprüft werden.
 
-**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v10.
+Die Standardschriften von PDF.js liegen mit im Vorabspeicher, sonst scheitert das Rendern von PDFs ohne eingebettete Schriften beim ersten Gebrauch ohne Netz.
+
+**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v24, Fassungskennung der Skripte `?v=24`.
 
 ## 29. PWA-Datenmodell
 
@@ -775,6 +806,8 @@ Stores umfassen:
 - settings
 - exams
 - examSessions
+
+Der Mastery-Datensatz trägt neben den vier Dimensionswerten den Status, die Confidence, die Evidenzzahl sowie `stability` und `stabilityDays` nach Kapitel 6. Beides sind Felder eines bestehenden Stores und brauchten daher keine Versionserhöhung; ältere Datensätze bekommen sie bei der nächsten Neuberechnung.
 
 Neue Persistenzanforderungen sollen migrationssicher eingeführt werden.
 
@@ -862,12 +895,12 @@ Der Selbstcheck ist im Profil ausführbar und deckt alle oben genannten Punkte a
 | Verwaiste Daten | Karten, Evidence, Mastery, Wissenslücken und Reviews ohne zugehöriges Lernziel oder Material |
 | Quellenreferenzen | Lernziele, deren Seitenverweis im Material nicht existiert, sowie fehlende Quellenausschnitte |
 | Dubletten | inhaltlich nahezu gleiche Lernziele je Material und mehrfach automatisch erzeugte Karten je Lernziel |
-| Mastery-Invarianten | fehlende Mastery-Datensätze, falsche Evidenzzahlen, Werte außerhalb von 0 bis 1, Status ohne Evidence, `MASTERED` ohne die in Kapitel 6 geforderten Belege |
+| Mastery-Invarianten | fehlende Mastery-Datensätze, falsche Evidenzzahlen, Werte außerhalb von 0 bis 1, Status ohne Evidence, `MASTERED` ohne die in Kapitel 6 geforderten Belege, unbekannter Stabilitätszustand, Evidence ohne Herkunft/Policy/Quelle nach Kapitel 10, Wissenslücken mit einem Typ außerhalb von Kapitel 11 |
 | FSRS-Verträge | fehlender FSRS-Zustand, Abweichung zwischen Fälligkeit und FSRS-Zustand, unzulässige Werte |
 | Import- und Lösch-Cascades | Material ohne Lernziele, Lernziele ohne Karte, Pläne und Prüfungssitzungen mit Verweisen auf gelöschte Lernziele |
 | Offline-Cache | ob die tatsächlich geladenen Dateien im Cache liegen |
 | Backup und Restore | zerstörungsfreier Probelauf von Serialisierung und Wiedereinlesen mit Abgleich der Datensatzzahlen |
-| LOCAL/AUTO/CLOUD-Parität | ob alle sechs Aufgaben über die AIService-Abstraktion laufen, samt aktuellem Modus und Cloud-Verfügbarkeit |
+| LOCAL/AUTO/CLOUD-Parität | ob alle sieben Aufgaben über die AIService-Abstraktion laufen, samt aktuellem Modus und Cloud-Verfügbarkeit |
 
 Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Automatisches Aufräumen ist bewusst ausgeschlossen, weil das Löschen von Lerndaten nach Kapitel 22 nur über ein Backup umkehrbar wäre.
 
@@ -902,6 +935,8 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | Quiz/offene Fragen | IMPLEMENTIERT |
 | freie Antwortbewertung | IMPLEMENTIERT; Cloud-E2E offen |
 | Mastery 4 Dimensionen | IMPLEMENTIERT |
+| Stabilität je Lernziel | IMPLEMENTIERT |
+| Assessment-Aufgabe im Tagesplan | IMPLEMENTIERT |
 | Knowledge Gaps | IMPLEMENTIERT |
 | adaptiver Tagesplan | IMPLEMENTIERT |
 | Coverage | IMPLEMENTIERT |
@@ -913,14 +948,14 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | Tutor | IMPLEMENTIERT |
 | Tutor „Prüf mich“ | IMPLEMENTIERT |
 | Speech | IMPLEMENTIERT als Progressive Enhancement, Gerätetest offen |
-| Analytics | IMPLEMENTIERT, Vollständigkeitsaudit offen |
+| Analytics | IMPLEMENTIERT, SHOULD-Kennzahlen Lernzeit/Antwortzeit/Planerfüllung offen |
 | Fortschrittsverlauf über die Zeit | IMPLEMENTIERT |
 | Zusammenfassung umfangreicher Dokumente | IMPLEMENTIERT |
 | Streak | IMPLEMENTIERT |
 | erweiterte Gamification | OPTIONAL/OFFEN |
 | JSON Backup/Restore | IMPLEMENTIERT |
 | Multiple Choice / Quiz | IMPLEMENTIERT |
-| Abgleich zwischen Geräten | IMPLEMENTIERT, KV-Bindung im Worker offen |
+| Abgleich zwischen Geräten | IMPLEMENTIERT inklusive KV-Bindung, Durchlauf mit zwei Geräten offen |
 | LOCAL/AUTO/CLOUD | IMPLEMENTIERT |
 | Cloud-Proxy-Code | IMPLEMENTIERT |
 | Cloud-Proxy live | IMPLEMENTIERT, Verbindung aus der PWA bestätigt |
@@ -955,22 +990,38 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 17. Material löschen und Cascade prüfen.
 18. Offline neu öffnen und Kernfunktionen prüfen.
 19. LOCAL/AUTO/CLOUD-Modi testen.
-20. CLOUD nach Proxy-Deployment für alle fünf AIService-Aufgaben testen.
+20. CLOUD nach Proxy-Deployment für alle sieben AIService-Aufgaben testen.
 
-## 36. Offene Prioritäten ab Version 3.22
+## 36. Offene Prioritäten ab Version 3.30
 
-1. KV-Namespace `LERNAPP_SYNC` anlegen und im Worker binden, damit der Geräteabgleich live geht.
-2. Geräteabgleich mit zwei echten Geräten durchspielen.
-3. Alle sieben CLOUD-AIService-Funktionen E2E testen, insbesondere `analyzeImage` mit einer echten handschriftlichen Mitschrift.
-4. Highlights inhaltlich gegen reale Studienunterlagen prüfen.
+Die verbleibenden Punkte sind ausschließlich externe Tests an realer Hardware und reale Inhaltsprüfungen; codeseitig ist der MUST-Umfang dieser Spezifikation erfüllt.
+
+1. Geräteabgleich mit zwei echten Geräten durchspielen.
+2. Alle sieben CLOUD-AIService-Funktionen E2E testen, insbesondere `analyzeImage` mit einer echten handschriftlichen Mitschrift.
+3. Highlights inhaltlich gegen reale Studienunterlagen prüfen.
+4. SHOULD-Kennzahlen aus Kapitel 19 ergänzen: Lernzeit, Antwortzeiten, Performance nach Fragetyp, Planerfüllung.
 5. Erweiterte Gamification bewerten, soweit sie das Lernen stützt.
 6. Knowledge Map bewerten.
-8. vollständigen iPhone/iPad-Abnahmetest durchführen.
-9. danach Release Candidate der persönlichen PWA erstellen.
+7. vollständigen iPhone/iPad-Abnahmetest nach Kapitel 35 durchführen.
+8. danach Release Candidate der persönlichen PWA erstellen.
 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.30
+
+- Stabilität nach Kapitel 6 ist implementiert: je Lernziel UNKNOWN/UNSTABLE/STABLE/DECAYING aus den FSRS-Intervallen, sichtbar im Lernziel und im Fortschritt, und im Tagesplan höher gewichtet als ein nie geprüftes Lernziel
+- Mastery-, Stabilitäts- und Lückenregel liegen jetzt einmal in `mastery.js` statt doppelt in `app.js` und `free-answer-ai.js`
+- Wissenslücken tragen die Typnamen aus Kapitel 11 und werden in der Oberfläche deutsch benannt
+- Tagesplan kennt die Aufgabenart `ASSESS` aus Kapitel 12: ein Lernziel mit unvollständig geprüften Dimensionen bekommt eine eigene Prüfaufgabe, statt aus dem Plan zu verschwinden
+- jede Evidence trägt Herkunft, Bewertungs-Policy und Quelle nach Kapitel 10, auch aus Review, Quiz und lokaler Prüfungsauswertung
+- Heute zeigt offene Schwächen und fällige Karten, Fortschritt zusätzlich Stabilitätsverteilung, Zahl und Qualität der Nachweise sowie die abgeschlossenen Prüfungssimulationen
+- Backup enthält Proxy-Endpunkt und Zugriffsschlüssel nicht mehr, und ein Restore behält die Verbindung dieses Geräts
+- Selbstcheck prüft Stabilitätszustand, Evidenzherkunft und zulässige Lückentypen
+- `package.json` pinnt wieder pdfjs-dist 4.10.38; der Eintrag 6.3.289 hätte beim nächsten Neu-Vendorn die in 3.28 behobene Regression zurückgeholt
+- Standardschriften von PDF.js liegen im Vorabspeicher des Service Workers
+- geprüft im Browser: Lernzyklus von Evidence bis Mastery, Stabilitätsregel in allen vier Zuständen, Tagesplan mit allen Aufgabenarten, alle zehn Selbstchecks ohne Konsolenfehler
 
 ## Changelog 3.29
 
