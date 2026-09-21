@@ -511,7 +511,7 @@ Regeln:
 - Transkript muss vor Bewertung sichtbar/bearbeitbar sein, wo sinnvoll.
 - mündliche Erklärung wird wie andere freie Antworten über Evidence bewertet.
 
-**Status:** SpeechRecognition-Basis in PWA/native vorhanden; echter Geräte-Endtest ausstehend.
+**Status:** SpeechRecognition in Selbsttest, Tutor-Lernkontrolle und Prüfungssimulation vorhanden, Texteingabe überall als garantierter Weg. Echter Geräte-Endtest ausstehend, weil die Erkennung eine Browserfunktion ist und sich nur am Gerät beurteilen lässt.
 
 ## 19. Fortschritt und Analytics
 
@@ -929,7 +929,7 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | Lokale Datenhaltung | IMPLEMENTIERT |
 | Module/Bibliothek | IMPLEMENTIERT |
 | PDF/TXT/MD Import | IMPLEMENTIERT |
-| PDF-Textextraktion | IMPLEMENTIERT |
+| PDF-Textextraktion | IMPLEMENTIERT, im Browsertest geprüft |
 | Bildverstehen für PDF-Seiten ohne brauchbare Textebene | IMPLEMENTIERT |
 | Wahl der Leseart beim PDF-Import | IMPLEMENTIERT |
 | Bibliotheken ohne CDN im Repository | IMPLEMENTIERT |
@@ -937,7 +937,7 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | OCR-Fallback | IMPLEMENTIERT, Geräte-Endtest offen |
 | Bildimport (Foto, Mitschrift, Folie, Skizze) | IMPLEMENTIERT, Geräte-Endtest offen |
 | Bildverstehen im CLOUD-Modus | IMPLEMENTIERT, Live-Test nach Deployment offen |
-| Material löschen | IMPLEMENTIERT, Geräte-Endtest offen |
+| Material löschen | IMPLEMENTIERT, Cascade im Browsertest geprüft, Geräte-Endtest offen |
 | Zusammenfassungen | IMPLEMENTIERT |
 | Highlights | IMPLEMENTIERT / Qualitätsaudit offen |
 | Lernziele | IMPLEMENTIERT |
@@ -946,7 +946,7 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | Dublettenprüfung für Lernziele | IMPLEMENTIERT |
 | Karteikartenerzeugung in Stapeln | IMPLEMENTIERT |
 | manuelle Karteikarten | IMPLEMENTIERT |
-| FSRS | IMPLEMENTIERT |
+| FSRS | IMPLEMENTIERT, im Browsertest geprüft |
 | Quiz/offene Fragen | IMPLEMENTIERT |
 | freie Antwortbewertung | IMPLEMENTIERT; Cloud-E2E offen |
 | Mastery 4 Dimensionen | IMPLEMENTIERT |
