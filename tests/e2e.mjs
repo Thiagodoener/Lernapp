@@ -53,6 +53,15 @@ step('6 Verarbeitungsstatus gespeichert',Boolean(imported.processing?.finishedAt
 const src=await page.evaluate(async()=>{const o=()=>new Promise(r=>{const q=indexedDB.open("lernapp-pwa",2);q.onsuccess=()=>r(q.result);});const db=await o();return new Promise(r=>{const tx=db.transaction("goals","readonly");const g=tx.objectStore("goals").getAll();g.onsuccess=()=>{const x=g.result[0];r({page:x?.sourcePage,snippet:(x?.sourceSnippet||"").slice(0,40),doc:Boolean(x?.documentId)});db.close();};});});
 step('7 Lernziel mit Quelle',Boolean(src.doc&&src.page),`Seite ${src.page}: ${src.snippet}…`);
 
+// 7b Highlights priorisieren statt der Reihe nach zu nehmen
+await page.click('[data-doc]');await page.waitForTimeout(500);
+const highlights=await page.evaluate(()=>[...document.querySelectorAll('.highlight')].map(h=>({
+  text:h.childNodes[0]?.textContent?.trim()||'',quelle:h.querySelector('.source')?.textContent||''})));
+step('7b Highlights mit Quelle und Begruendung',highlights.length>0&&highlights.every(h=>/Seite \d+ · /.test(h.quelle)),
+  `${highlights.length} Highlights, z. B. „${highlights[0]?.text.slice(0,45)}…" (${highlights[0]?.quelle})`);
+step('7c Keine Verweis- und Ueberleitungssaetze',!highlights.some(h=>/^(Abbildung|Siehe|Im Folgenden|Vgl\.)/i.test(h.text)));
+await page.evaluate(()=>document.querySelector('#modal')?.close());await page.waitForTimeout(200);
+
 // 8 Review mit FSRS
 await page.click('[data-tab="learn"]');await page.waitForTimeout(700);
 const due=await page.textContent('.hero-value');

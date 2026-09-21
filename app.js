@@ -894,7 +894,7 @@ async function renderToday() {
       <div class="row between"><h2>Tagesplan</h2><button class="secondary" id="regen-plan">Neu planen</button></div>
       ${plan.tasks.length?plan.tasks.map((t,i)=>`
         <div class="list-item task">
-          <input class="task-check" type="checkbox" data-task="${i}" ${t.status==="DONE"?"checked":""} aria-label="Aufgabe abschließen">
+          <label class="task-check-hit"><input class="task-check" type="checkbox" data-task="${i}" ${t.status==="DONE"?"checked":""} aria-label="Aufgabe abschließen"></label>
           <div class="clickable" data-open-goal="${t.goalId}">
             <strong>${esc(t.title)}</strong>
             <div class="small muted">${esc(t.reason)} · ${t.minutes} Min</div>
@@ -975,9 +975,77 @@ async function renderLibrary() {
   bindGoalLinks();
 }
 
+// Kap. 7: Highlights sollen die wichtigen Inhalte priorisieren, nicht die
+// erstbesten. Die Auswahl bleibt deterministisch und kostet keinen KI-Aufruf
+// (Kap. 3.3 und 3.5). Gewichtet wird, was in Studienmaterial tatsaechlich den
+// Lernstoff traegt:
+//
+// - Definitionen und Funktionsaussagen ("ist ein", "bezeichnet", "dient dazu")
+// - seltene Fachbegriffe, gemessen an ihrer Haeufigkeit im Dokument selbst
+// - konkrete Zahlen- und Mengenangaben
+// - eine fruehe Stelle auf der Seite, wo Lehrtexte ihre Kernaussage setzen
+//
+// Abgezogen wird bei Fuellsaetzen und bei ueberlangen Schachtelsaetzen, die als
+// Merksatz nichts taugen. Nahezu gleiche Saetze fallen raus, damit dieselbe
+// Aussage nicht dreimal hervorgehoben wird.
+const DEFINITION_PATTERN=/\b(ist ein|ist eine|sind die|sind das|bezeichnet|bezeichnen|definiert|bedeutet|versteht man|besteht aus|bestehen aus|dient|dienen|ermöglicht|erzeugt|entsteht|enthält|steuert|trennt|setzt sich)\b/i;
+const FILLER_PATTERN=/^(außerdem|darüber hinaus|zum beispiel|beispielsweise|im folgenden|in diesem kapitel|im weiteren|dieses kapitel|abbildung|abb\.|tabelle|tab\.|siehe|vgl\.|quelle:|register|inhaltsverzeichnis)/i;
+// Unterhalb dieser Bewertung ist ein Satz kein Highlight, sondern Beiwerk.
+const HIGHLIGHT_MIN_SCORE=1.0;
+
+function highlightCandidates(doc) {
+  const pages=doc.pages||[];
+  const frequency=new Map();
+  for(const page of pages){
+    for(const token of tokenize(page.text||"")) frequency.set(token,(frequency.get(token)||0)+1);
+  }
+  const candidates=[];
+  for(const page of pages){
+    if(page.relevant===false) continue;
+    const sentences=extractSentences(page.text||"");
+    sentences.forEach((text,index)=>{
+      const tokens=[...tokenize(text)];
+      if(!tokens.length) return;
+      // Verweise und Ueberleitungen tragen keinen Lernstoff. Sie niedriger zu
+      // bewerten reicht nicht: solange wenige Saetze vorliegen, stuenden sie
+      // trotzdem als Highlight da. Deshalb fallen sie ganz heraus.
+      if(FILLER_PATTERN.test(text)) return;
+      if(tokens.length<6) return;
+      const rare=tokens.filter(t=>(frequency.get(t)||0)<=2).length/tokens.length;
+      const definition=DEFINITION_PATTERN.test(text);
+      const numbers=/\d/.test(text);
+      const position=1-Math.min(1,index/Math.max(1,sentences.length));
+      const laenge=text.length;
+      let score=1.6*rare + .9*position;
+      if(definition) score+=1.4;
+      if(numbers) score+=.4;
+      if(laenge>320) score-=.8;
+      if(laenge<70) score-=.3;
+      if(score<HIGHLIGHT_MIN_SCORE) return;
+      const grund=definition?"Definition oder Funktion":numbers?"Zahlenangabe":rare>=.5?"Fachbegriffe":"Kernaussage";
+      candidates.push({text,page:page.page,score,grund,tokens:new Set(tokens)});
+    });
+  }
+  candidates.sort((a,b)=>b.score-a.score);
+  // Dieselbe Aussage soll nicht mehrfach erscheinen; verglichen wird wie bei der
+  // Dublettenpruefung aus Kap. 8 die Ueberschneidung der Inhaltswoerter.
+  const gewaehlt=[];
+  for(const candidate of candidates){
+    const doppelt=gewaehlt.some(chosen=>{
+      const kleiner=Math.min(chosen.tokens.size,candidate.tokens.size)||1;
+      let treffer=0;
+      candidate.tokens.forEach(t=>{if(chosen.tokens.has(t))treffer++;});
+      return treffer/kleiner>=.6;
+    });
+    if(!doppelt) gewaehlt.push(candidate);
+    if(gewaehlt.length>=12) break;
+  }
+  return gewaehlt.sort((a,b)=>a.page-b.page||b.score-a.score);
+}
+
 async function openDocument(id) {
   const d=await get("documents",id);
-  const sentences=d.pages.flatMap(p=>extractSentences(p.text).slice(0,3).map(text=>({text,page:p.page})));
+  const sentences=highlightCandidates(d);
   const pages=d.pages?.length||0;
   const relevant=(d.pages||[]).filter(p=>p.relevant!==false).length;
   // Die Zusammenfassung liefert summaries-ai.js weiter unten im selben Sheet.
@@ -990,7 +1058,7 @@ async function openDocument(id) {
     ${processingDetail(d)}
     <h3>Wichtige Inhalte</h3>
     ${sentences.length
-      ? sentences.slice(0,12).map(x=>`<div class="highlight">${esc(x.text)}<div class="source">Seite ${x.page}</div></div>`).join("")
+      ? sentences.map(x=>`<div class="highlight">${esc(x.text)}<div class="source">Seite ${x.page} · ${esc(x.grund)}</div></div>`).join("")
       : `<div class="empty">Aus diesem Material konnten keine Auszüge gebildet werden.</div>`}
   `);
 }

@@ -230,9 +230,24 @@ function mergeSnapshots(local,remote){
   return merged;
 }
 
+// Kap. 23: Proxy-Endpunkt und Zugriffsschluessel werden nie uebertragen. Die
+// Zusammenfuehrung haelt sie lokal fest, der hochgeladene Stand darf sie
+// trotzdem nicht enthalten: sonst laege der persoenliche Schluessel im Klartext
+// beim Proxy. Nebenwirkung des Fehlers war ein Upload bei jedem Abgleich, weil
+// sich das Kennzeichen zweier Geraete allein durch diese Felder unterschied.
+function withoutDeviceLocalFields(row){
+  if(row?.id!==APP_SETTINGS_ID)return row;
+  const copy={...row};
+  for(const field of DEVICE_LOCAL_FIELDS)delete copy[field];
+  return copy;
+}
+
 function snapshotFromMerged(merged){
   const stores={};
-  for(const store of SYNC_STORES)stores[store]=[...(merged[store]?.values()||[])];
+  for(const store of SYNC_STORES){
+    const rows=[...(merged[store]?.values()||[])];
+    stores[store]=store==="settings"?rows.map(withoutDeviceLocalFields):rows;
+  }
   return {version:1,stores};
 }
 
