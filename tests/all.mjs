@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
 const hier=path.dirname(fileURLToPath(import.meta.url));
-const reihen=["e2e","offline","cloud","sync","mobile","optional"];
+const reihen=["e2e","offline","cloud","sync","import","mobile","optional"];
 const ergebnis=[];
 
 for(const name of reihen){

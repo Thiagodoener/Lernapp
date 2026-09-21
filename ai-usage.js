@@ -4,8 +4,16 @@ const USAGE_TASK_LABELS={
   generateLearningGoals:"Lernziele",
   generateFlashcards:"Karteikarten",
   evaluateFreeAnswer:"Antwortbewertung",
-  analyzeImage:"Bildanalyse"
+  analyzeImage:"Bildanalyse",
+  generateChoiceOptions:"Quizoptionen"
 };
+
+function usageTokenLabel(value){
+  const zahl=Number(value)||0;
+  if(zahl>=1e6)return `${(zahl/1e6).toFixed(2)} Mio.`;
+  if(zahl>=1000)return `${Math.round(zahl/1000)} Tsd.`;
+  return String(zahl);
+}
 
 function usageToast(message){
   const el=document.createElement("div");
@@ -31,9 +39,17 @@ function usageBars(days){
 function usageBody(usage){
   const tasks=Object.entries(usage.today.tasks||{}).sort((a,b)=>b[1]-a[1]);
   const weekTotal=usage.days.reduce((sum,d)=>sum+d.total,0);
+  const monat=usage.month||{};
+  const preisGesetzt=(Number(monat.preis?.input)||0)>0||(Number(monat.preis?.output)||0)>0;
   return `
     <div class="row between"><span>Heute</span><strong>${usage.today.total} Anfragen</strong></div>
     <div class="row between"><span>Letzte 7 Tage</span><strong>${weekTotal} Anfragen</strong></div>
+    <div class="row between"><span>Diesen Monat</span><strong>${monat.anfragen||0} Anfragen</strong></div>
+    <div class="row between"><span>Tokens im Monat</span><strong>${usageTokenLabel(monat.tokensIn)} ein · ${usageTokenLabel(monat.tokensOut)} aus</strong></div>
+    ${preisGesetzt
+      ? `<div class="row between"><span>Geschätzte Kosten</span><strong>${(monat.euro||0).toFixed(2)} €${monat.budget?` von ${Number(monat.budget).toFixed(2)} €`:""}</strong></div>
+         ${monat.budget?`<div class="progress-track"><div class="progress-fill" data-budget-fill></div></div>`:""}`
+      : `<p class="small muted">Für eine Kostenschätzung fehlt der Preis je Million Tokens. Ohne ihn zeigt die App Tokens statt einer geratenen Zahl.</p>`}
     ${usage.today.failed?`<p class="small muted">Davon heute ${usage.today.failed} fehlgeschlagen oder gedrosselt.</p>`:""}
     ${usageBars(usage.days)}
     ${tasks.length
@@ -41,6 +57,14 @@ function usageBody(usage){
       : `<p class="small muted">Heute wurden noch keine Cloud-Anfragen gestellt.</p>`}
     ${usage.blockedReason?`<p class="small muted"><strong>${usageEsc(usage.blockedReason)}</strong></p>`:""}
   `;
+}
+
+function usageDrawBudget(card,usage){
+  const fill=card.querySelector("[data-budget-fill]");
+  const monat=usage.month||{};
+  if(!fill||!(monat.budget>0))return;
+  // Breite ist ein Wert, keine Gestaltung, und steht deshalb nicht im Markup.
+  fill.style.width=`${Math.round(Math.min(1,(monat.euro||0)/monat.budget)*100)}%`;
 }
 
 async function injectUsageCard(){
@@ -62,20 +86,43 @@ async function injectUsageCard(){
     <div id="ai-usage-body"><p class="small muted">Wird geladen …</p></div>
     <label class="small muted" for="ai-usage-limit">Tageslimit für Cloud-Anfragen</label>
     <input id="ai-usage-limit" type="number" inputmode="numeric" min="0" step="1" placeholder="0 = kein Limit">
-    <p class="small muted">Ist das Limit erreicht, wechselt AUTO automatisch auf LOCAL. Im Modus CLOUD nennt die App den Grund, statt eine unspezifische Fehlermeldung zu zeigen.</p>
-    <button type="button" class="primary full" id="ai-usage-save">Limit speichern</button>
+    <label class="small muted" for="ai-usage-budget">Monatsbudget in Euro</label>
+    <input id="ai-usage-budget" type="number" inputmode="decimal" min="0" step="0.5" placeholder="0 = kein Budget">
+    <div class="usage-price-grid">
+      <div>
+        <label class="small muted" for="ai-usage-price-in">€ je Mio. Eingabe-Tokens</label>
+        <input id="ai-usage-price-in" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0">
+      </div>
+      <div>
+        <label class="small muted" for="ai-usage-price-out">€ je Mio. Ausgabe-Tokens</label>
+        <input id="ai-usage-price-out" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0">
+      </div>
+    </div>
+    <p class="small muted">Die Preise stehen auf der Preisseite deines Anbieters und ändern sich dort; deshalb trägst du sie hier ein, statt dass die App eine Zahl errät. Im kostenlosen Kontingent bleiben beide auf 0 und es entstehen keine Kosten. Ist das Budget ausgeschöpft, wechselt AUTO auf LOCAL, genau wie beim Tageslimit.</p>
+    <button type="button" class="primary full" id="ai-usage-save">Limit und Budget speichern</button>
   `;
   const cloudCard=content.querySelector("#cloud-settings-card");
   if(cloudCard)cloudCard.insertAdjacentElement("afterend",card);else content.prepend(card);
 
   const usage=await window.AIService.usage();
   card.querySelector("#ai-usage-body").innerHTML=usageBody(usage);
+  usageDrawBudget(card,usage);
   card.querySelector("#ai-usage-limit").value=usage.limit||"";
+  card.querySelector("#ai-usage-budget").value=usage.month?.budget||"";
+  card.querySelector("#ai-usage-price-in").value=usage.month?.preis?.input||"";
+  card.querySelector("#ai-usage-price-out").value=usage.month?.preis?.output||"";
 
   card.querySelector("#ai-usage-save").onclick=async()=>{
-    const value=await window.AIService.setDailyLimit(card.querySelector("#ai-usage-limit").value);
-    card.querySelector("#ai-usage-body").innerHTML=usageBody(await window.AIService.usage());
-    usageToast(value?`Tageslimit auf ${value} gesetzt`:"Tageslimit entfernt");
+    const limit=await window.AIService.setDailyLimit(card.querySelector("#ai-usage-limit").value);
+    const budget=await window.AIService.setMonthlyBudget(card.querySelector("#ai-usage-budget").value);
+    await window.AIService.setTokenPrice({
+      input:card.querySelector("#ai-usage-price-in").value,
+      output:card.querySelector("#ai-usage-price-out").value
+    });
+    const frisch=await window.AIService.usage();
+    card.querySelector("#ai-usage-body").innerHTML=usageBody(frisch);
+    usageDrawBudget(card,frisch);
+    usageToast([limit?`Tageslimit ${limit}`:null,budget?`Budget ${budget.toFixed(2)} €`:null].filter(Boolean).join(" · ")||"Grenzen entfernt");
   };
   return true;
 }

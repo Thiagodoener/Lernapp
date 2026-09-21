@@ -11,7 +11,17 @@ compatibility_date = "2026-09-10"
 # ein zusaetzlicher Schraegstrich fuehrt zu "Origin nicht erlaubt".
 [vars]
 ALLOWED_ORIGIN = "https://thiagodoener.github.io"
-GEMINI_MODEL = "gemini-2.0-flash"
+
+# Kein fester Modellname mehr. Google schaltet aeltere Fassungen ab; mit
+# GEMINI_MODEL = "gemini-2.0-flash" stand dadurch der gesamte Cloud-Pfad, bis
+# jemand die Datei aendert. Der Worker fragt jetzt beim Start ab, welche Modelle
+# der Schluessel anbietet, und waehlt nach Rangfolge: guenstige Fliessbandarbeit
+# auf ein Lite-Modell, Bewertung und Bildverstehen auf das staerkere Flash.
+#
+# GEMINI_MODELS setzt eine eigene Rangfolge davor, zum Beispiel
+#   GEMINI_MODELS = "gemini-flash-latest,gemini-flash-lite-latest"
+# GEMINI_MODEL erzwingt genau ein Modell und schaltet die Aufloesung ab. Beides
+# ist optional und bleibt bewusst leer.
 
 # GEMINI_API_KEY und LERNAPP_ACCESS_KEY bleiben Secrets und stehen nie hier.
 

@@ -26,6 +26,7 @@ node tests/e2e.mjs        # Abnahmekriterien aus Kapitel 35
 node tests/offline.mjs    # Offline-Zustand und Neustart ohne Netz
 node tests/cloud.mjs      # alle sieben CLOUD-Aufgaben gegen den echten Worker
 node tests/sync.mjs       # Geräteabgleich mit zwei unabhängigen Clients
+node tests/import.mjs     # Import eines 24-seitigen Skriptes über den Proxy
 node tests/mobile.mjs     # iPhone-/iPad-Geometrie und Safari-Rückfall
 node tests/optional.mjs   # Wissenslandkarte und Gamification
 ```
@@ -70,6 +71,14 @@ Revisionskonflikt und die Vereinigung des Fortschrittsverlaufs.
 Was diese Reihen **nicht** abdecken: die Antwortqualität des echten Modells und
 das Verhalten unter dem tatsächlichen Kontingent. Dafür braucht es ein
 Deployment mit eigenem Google-Schlüssel.
+
+## Was `import.mjs` prüft
+
+Import eines 24-seitigen Skriptes im Modus CLOUD gegen den echten Worker-Code:
+wie viele KI-Aufrufe er kostet (gebündelt statt Seite für Seite), ob die
+Lernziele die richtige Seite tragen, ob der Tokenverbrauch ankommt, und was
+passiert, wenn die Cloud mitten im Import ausfällt — Blatt statt Browserdialog,
+keine laufende Fortschrittszeile, kein halbfertiges Material.
 
 ## Was `mobile.mjs` prüft
 

@@ -7,6 +7,56 @@ function aiImportNow(){return new Date().toISOString();}
 function aiImportDayKey(date=new Date()){const d=new Date(date);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function aiImportToast(message){const el=document.createElement("div");el.className="toast";el.textContent=message;document.body.appendChild(el);setTimeout(()=>el.remove(),2400);}
 
+// Ein Import ueber 187 Seiten meldete seinen Fortschritt bisher als Folge
+// einzelner Einblendungen. Bei einem Fehler standen sie noch da, waehrend
+// darueber schon die Fehlermeldung lag: es sah aus, als liefe der Import weiter.
+// Stattdessen genau eine Zeile, die sich aendert und am Ende verschwindet.
+let aiImportProgressEl=null;
+function aiImportProgress(message){
+  if(!aiImportProgressEl){
+    aiImportProgressEl=document.createElement("div");
+    aiImportProgressEl.className="import-progress";
+    aiImportProgressEl.setAttribute("role","status");
+    aiImportProgressEl.setAttribute("aria-live","polite");
+    document.body.appendChild(aiImportProgressEl);
+  }
+  aiImportProgressEl.textContent=message;
+}
+function aiImportProgressDone(){
+  aiImportProgressEl?.remove();
+  aiImportProgressEl=null;
+}
+
+// Eine Fehlermeldung des Anbieters ist englisch und technisch. Sie bleibt
+// sichtbar, aber davor steht, was der Lernende jetzt tun kann.
+function aiImportShowFailure(error){
+  aiImportProgressDone();
+  const modal=document.querySelector("#modal");
+  const box=document.querySelector("#modal-content");
+  const text=String(error?.message||error||"Unbekannter Fehler");
+  const code=error?.code||null;
+  const rat={
+    MODEL_UNAVAILABLE:"Der Proxy sucht sich normalerweise selbst ein neues Modell. Bleibt der Fehler, steht im Worker unter GEMINI_MODEL noch ein fester Modellname; dieser Eintrag muss weg.",
+    NO_KEY:"Im Worker fehlt das Secret GEMINI_API_KEY.",
+    NO_MODEL:"Der hinterlegte Schlüssel bietet gerade kein nutzbares Modell an. Prüfe im Profil mit „Verbindung testen“, was der Proxy meldet.",
+    THROTTLED:"Das kostenlose Kontingent ist erschöpft. Später erneut versuchen, oder im Profil auf LOCAL umschalten und ohne Cloud weiterarbeiten.",
+    TOO_LARGE:"Das Dokument in kleineren Teilen importieren.",
+    TRUNCATED:"Das Dokument in kleineren Teilen importieren."
+  }[code]||"Im Profil lässt sich mit „Verbindung testen“ prüfen, ob der Proxy erreichbar ist. Im Modus LOCAL funktioniert der Import ohne Cloud weiter, nur mit einfacheren Lernzielen.";
+  if(!modal||!box){alert(`Import fehlgeschlagen: ${text}`);return;}
+  box.innerHTML=`
+    <div class="eyebrow">IMPORT FEHLGESCHLAGEN</div>
+    <h2>Das Material wurde nicht übernommen</h2>
+    <p>${aiImportEscape(rat)}</p>
+    <p class="small muted">Es sind keine halbfertigen Daten zurückgeblieben; der Import wurde vollständig zurückgerollt.</p>
+    <div class="answer small">${aiImportEscape(text)}</div>
+    <button type="button" class="primary full" id="import-failure-close">Schließen</button>`;
+  box.querySelector("#import-failure-close").onclick=()=>modal.close();
+  if(!modal.open)modal.showModal();
+}
+
+function aiImportEscape(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
+
 function aiImportOpenDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(AI_IMPORT_DB,AI_IMPORT_DB_VERSION);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
 async function aiImportAll(store){const db=await aiImportOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readonly"),req=tx.objectStore(store).getAll();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error);tx.oncomplete=()=>db.close();});}
 async function aiImportPut(store,value){const db=await aiImportOpenDB();value={...value,updatedAt:new Date().toISOString()};return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readwrite");tx.objectStore(store).put(value);tx.oncomplete=()=>{db.close();resolve(value);};tx.onerror=()=>{db.close();reject(tx.error);};});}
@@ -15,7 +65,8 @@ async function aiImportDelete(store,id){const db=await aiImportOpenDB();return n
 // Ohne diese Rückmeldung wirkt eine Drosselungspause wie ein eingefrorener Import.
 window.addEventListener("lernapp:cloud-throttled",event=>{
   const seconds=Math.round((event.detail?.delayMs||0)/1000);
-  aiImportToast(`Kontingent kurz erschöpft, weiter in ${seconds} s …`);
+  if(aiImportProgressEl)aiImportProgress(`Kontingent kurz erschöpft, weiter in ${seconds} s …`);
+  else aiImportToast(`Kontingent kurz erschöpft, weiter in ${seconds} s …`);
 });
 
 async function aiImportActiveModule(){const modules=await aiImportAll("modules");if(!modules.length)throw new Error("Kein Lernmodul vorhanden.");return modules[0];}
@@ -85,7 +136,7 @@ async function aiImportExtractPDF(file,readAs="TEXT"){
   let announcedVision=false;
 
   for(let number=1;number<=pdf.numPages;number++){
-    aiImportToast(`Verarbeite Seite ${number} von ${pdf.numPages}`);
+    aiImportProgress(`Seite ${number} von ${pdf.numPages} wird gelesen …`);
     try{
       const page=await pdf.getPage(number);
       const layer=readAs==="IMAGE"?"":await aiImportPageTextLayer(page);
@@ -204,6 +255,12 @@ const AI_IMPORT_MIN_WORDS=12;
 const AI_IMPORT_MAX_DIGIT_RATIO=0.3;
 const AI_IMPORT_DUPLICATE_THRESHOLD=0.8;
 const AI_IMPORT_CARD_BATCH=20;
+// Mehrere Seiten in einem Aufruf. Ein Skript mit 187 Seiten kostete vorher
+// knapp 190 Anfragen fuer die Lernziele allein; gebuendelt sind es rund 15.
+// Begrenzt wird nach Zeichen statt nach Seitenzahl, weil eine Folie 200 und
+// eine Skriptseite 4000 Zeichen tragen kann.
+const AI_IMPORT_GOAL_BATCH_CHARS=24000;
+const AI_IMPORT_GOAL_BATCH_PAGES=12;
 
 // Zahlen zaehlen unabhaengig von ihrer Laenge mit: in Lernstoff unterscheiden sich
 // Aufzaehlungen, Formeln und Jahreszahlen oft nur durch eine einzelne Ziffer.
@@ -230,27 +287,78 @@ function aiImportHasLearningValue(text){
   return true;
 }
 
+// Seiten zu Buendeln packen, die je Aufruf unter der Serverschranke bleiben.
+// Eine einzelne Seite, die fuer sich schon zu gross ist, bekommt ihr eigenes
+// Buendel, statt den Import zu verhindern.
+function aiImportPackPages(pages){
+  const bundles=[];
+  let aktuell=[],zeichen=0;
+  for(const page of pages){
+    const laenge=String(page.text||"").length;
+    if(aktuell.length&&(zeichen+laenge>AI_IMPORT_GOAL_BATCH_CHARS||aktuell.length>=AI_IMPORT_GOAL_BATCH_PAGES)){
+      bundles.push(aktuell);aktuell=[];zeichen=0;
+    }
+    aktuell.push(page);zeichen+=laenge;
+  }
+  if(aktuell.length)bundles.push(aktuell);
+  return bundles;
+}
+
 async function aiImportGenerateGoals(pages,documentRecord,module){
   if(!window.AIService)throw new Error("AIService ist nicht verfügbar.");
   const created=[];
   const providerStatus=await window.AIService.status().catch(()=>null);
   const mode=await window.AIService.getMode();
   const accepted=[];
-  let skippedPages=0,duplicates=0;
+  let skippedPages=0,duplicates=0,failedBundles=0;
+
+  const relevant=[];
   for(const page of pages){
-    const text=String(page.text||"").trim();
     if(page.relevant===false){skippedPages++;continue;}
-    const result=await window.AIService.generateLearningGoals({text,title:documentRecord.title,sourcePage:page.page,documentId:documentRecord.id});
-    const candidates=(result?.goals||[]).slice(0,3);
-    for(const candidate of candidates){
+    relevant.push(page);
+  }
+  const bundles=aiImportPackPages(relevant);
+  const seitenById=new Map(relevant.map(page=>[Number(page.page),page]));
+
+  let verarbeitet=0;
+  for(const bundle of bundles){
+    aiImportProgress(`Lernziele aus Seite ${bundle[0].page} bis ${bundle[bundle.length-1].page} …`);
+    let result=null;
+    try{
+      result=await window.AIService.generateLearningGoals({
+        pages:bundle.map(page=>({page:page.page,text:String(page.text||"").trim()})),
+        title:documentRecord.title,
+        documentId:documentRecord.id,
+        // Ein einzelner Aufruf bleibt fuer den Rueckfall auf LOCAL lesbar.
+        text:bundle.map(page=>page.text).join("\n\n"),
+        sourcePage:bundle[0].page
+      });
+    }catch(error){
+      // Ein gescheitertes Buendel darf einen Import ueber 187 Seiten nicht
+      // kosten. Gezaehlt und gemeldet wird es trotzdem.
+      failedBundles++;
+      console.warn("Lernziele für einen Abschnitt fehlgeschlagen:",error);
+      continue;
+    }
+    verarbeitet+=bundle.length;
+    const proSeite=new Map();
+    for(const candidate of result?.goals||[]){
       const answerKey=String(candidate.answerKey||candidate.statement||"").trim();
       if(!answerKey)continue;
-      // Dieselbe Aussage taucht in Skripten oft auf mehreren Seiten auf. Ohne
-      // diesen Vergleich entstehen daraus mehrere fast identische Karteikarten.
+      // Das Modell soll die Seite mitliefern. Tut es das nicht oder nennt eine
+      // Seite ausserhalb des Buendels, wird die Quelle aus dem Text bestimmt,
+      // statt eine erfundene Seitenzahl zu uebernehmen (Kap. 3.4).
+      const genannt=Number(candidate.sourcePage);
+      const page=seitenById.has(genannt)&&bundle.some(p=>Number(p.page)===genannt)
+        ? seitenById.get(genannt)
+        : null;
+      const zahl=proSeite.get(page?.page??"?")||0;
+      if(zahl>=3)continue;
+      proSeite.set(page?.page??"?",zahl+1);
       const fingerprint=aiImportContentWords(`${candidate.statement||""} ${answerKey}`);
       if(accepted.some(known=>aiImportSimilarity(known,fingerprint)>=AI_IMPORT_DUPLICATE_THRESHOLD)){duplicates++;continue;}
       accepted.push(fingerprint);
-      const source=aiImportSourcePage([page],answerKey);
+      const source=aiImportSourcePage(page?[page]:bundle,answerKey);
       const goal={
         id:aiImportUid(),moduleId:module.id,documentId:documentRecord.id,
         statement:String(candidate.statement||`Erkläre: ${answerKey}`).trim(),
@@ -264,7 +372,7 @@ async function aiImportGenerateGoals(pages,documentRecord,module){
       created.push(goal);
     }
   }
-  return {goals:created,skippedPages,duplicates};
+  return {goals:created,skippedPages,duplicates,failedBundles,bundles:bundles.length};
 }
 
 // Alle Lernziele in einem Aufruf zu schicken hat bei grossen Dokumenten
@@ -276,7 +384,7 @@ async function aiImportGenerateCards(goals,module){
   const generatedCards=[];
   for(let i=0;i<goals.length;i+=AI_IMPORT_CARD_BATCH){
     const batch=goals.slice(i,i+AI_IMPORT_CARD_BATCH);
-    if(goals.length>AI_IMPORT_CARD_BATCH)aiImportToast(`Karteikarten ${i+1} bis ${Math.min(i+AI_IMPORT_CARD_BATCH,goals.length)} von ${goals.length}`);
+    aiImportProgress(`Karteikarten ${i+1} bis ${Math.min(i+AI_IMPORT_CARD_BATCH,goals.length)} von ${goals.length} …`);
     const result=await window.AIService.generateFlashcards({goals:batch.map(g=>({id:g.id,statement:g.statement,answerKey:g.answerKey}))});
     for(const generated of result?.flashcards||[])generatedCards.push({generated,confidence:result?.confidence,provider:result?.provider});
   }
@@ -294,7 +402,7 @@ async function aiImportGenerateCards(goals,module){
 
 async function aiImportStudyFile(file,readAs="TEXT"){
   const module=await aiImportActiveModule();
-  aiImportToast("Material wird analysiert …");
+  aiImportProgress("Material wird gelesen …");
   const extracted=await aiImportExtractFile(file,readAs);
   const failedPages=extracted.failedPages||[];
   const totalPages=extracted.totalPages||extracted.length;
@@ -318,17 +426,19 @@ async function aiImportStudyFile(file,readAs="TEXT"){
   let stored=false;
   try{
     await aiImportPut("documents",documentRecord);stored=true;
-    aiImportToast("Lernziele werden erstellt …");
-    const {goals,skippedPages,duplicates}=await aiImportGenerateGoals(pages,documentRecord,module);
+    aiImportProgress("Lernziele werden erstellt …");
+    const {goals,skippedPages,duplicates,failedBundles,bundles}=await aiImportGenerateGoals(pages,documentRecord,module);
     if(!goals.length)throw new Error("Es konnten keine sinnvollen Lernziele erzeugt werden.");
-    aiImportToast("Karteikarten werden erstellt …");
+    aiImportProgress("Karteikarten werden erstellt …");
     const cards=await aiImportGenerateCards(goals,module);
     const planId=`${module.id}:${aiImportDayKey()}`;
     await aiImportDelete("plans",planId).catch(()=>{});
     documentRecord.status="READY";
-    documentRecord.processing={...documentRecord.processing,skippedPages,duplicates,goals:goals.length,flashcards:cards.length,finishedAt:aiImportNow()};
+    documentRecord.processing={...documentRecord.processing,skippedPages,duplicates,goals:goals.length,flashcards:cards.length,
+      aiRequests:(bundles||0)-(failedBundles||0)+Math.ceil(goals.length/AI_IMPORT_CARD_BATCH),failedBundles:failedBundles||0,finishedAt:aiImportNow()};
     await aiImportPut("documents",documentRecord);
-    const filtered=[skippedPages?`${skippedPages} Seiten ohne Lernstoff übersprungen`:null,duplicates?`${duplicates} Dubletten verworfen`:null].filter(Boolean);
+    const filtered=[skippedPages?`${skippedPages} Seiten ohne Lernstoff übersprungen`:null,duplicates?`${duplicates} Dubletten verworfen`:null,failedBundles?`${failedBundles} Abschnitte nicht auswertbar`:null].filter(Boolean);
+    aiImportProgressDone();
     aiImportToast(`${goals.length} Lernziele · ${cards.length} Karteikarten erstellt${filtered.length?` · ${filtered.join(" · ")}`:""}`);
     return documentRecord;
   }catch(error){
@@ -398,8 +508,9 @@ if(aiImportInput){
       await aiImportStudyFile(file,readAs);
       document.querySelector('[data-tab="library"]')?.click();
     }catch(error){
-      alert(`Import fehlgeschlagen: ${error.message}`);
+      aiImportShowFailure(error);
     }finally{
+      aiImportProgressDone();
       event.target.value="";
     }
   },true);

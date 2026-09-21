@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.31 — 21.09.2026
+## Version 3.32 — 21.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -117,7 +117,9 @@ Zielumfang:
 ### Importregeln
 
 - Quelldokument bleibt als eigenständige Entität erhalten.
-- Das Verarbeitungsergebnis bleibt am Dokument gespeichert: gelesene und nicht lesbare Seiten samt Seitenzahlen, Leseart je Seite, übersprungene Seiten, verworfene Dubletten sowie erzeugte Lernziele und Karteikarten. Ein Hinweis, der nach zwei Sekunden verschwindet, ist kein Verarbeitungsstatus.
+- Das Verarbeitungsergebnis bleibt am Dokument gespeichert: gelesene und nicht lesbare Seiten samt Seitenzahlen, Leseart je Seite, übersprungene Seiten, verworfene Dubletten, die Zahl der KI-Aufrufe sowie erzeugte Lernziele und Karteikarten.
+- Der Fortschritt eines Imports steht in genau einer Zeile, die sich ändert und am Ende verschwindet. Eine Folge einzelner Einblendungen blieb bei einem Fehler stehen, während darüber schon die Fehlermeldung lag: es sah aus, als liefe der Import weiter.
+- Ein fehlgeschlagener Import erscheint als Blatt im Stil der App, nicht als Browserdialog. Es nennt zuerst den nächsten Schritt, hält fest, dass nichts Halbfertiges zurückgeblieben ist, und zeigt die Originalmeldung darunter. Ein Hinweis, der nach zwei Sekunden verschwindet, ist kein Verarbeitungsstatus.
 - Seiten-/Quellenbezug soll erhalten bleiben.
 - Scan-Seiten verwenden OCR-Fallback.
 - Verarbeitung darf keine halbfertigen abhängigen Daten zurücklassen.
@@ -290,6 +292,7 @@ Aus Material werden konkrete, lernbare Ziele erzeugt. Lernziele müssen:
 
 Lernziele werden pro Quellseite erzeugt. Damit daraus kein Wildwuchs entsteht, gelten zwei Regeln:
 
+- **Bündelung:** Lernziele entstehen weiterhin seitenweise, aber mehrere Seiten gehen in einem Aufruf raus, begrenzt auf rund 24 000 Zeichen oder zwölf Seiten. Vorher kostete ein Skript mit 187 Seiten knapp 190 Aufrufe allein für die Lernziele; gebündelt sind es rund 15. Jedes Lernziel trägt die Seite, aus der es stammt; nennt das Modell eine Seite außerhalb des Bündels, wird die Quelle aus dem Text bestimmt, statt eine erfundene Seitenzahl zu übernehmen (Kapitel 3.4). Ein gescheitertes Bündel kostet nicht den ganzen Import, wird aber gezählt und gemeldet.
 - **Relevanzprüfung:** Seiten ohne Lernstoff werden übersprungen, bevor ein KI-Aufruf entsteht. Erkannt werden Verzeichnisse und Register, zu dünne Seiten und Seiten mit überwiegend Ziffern. Die Prüfung greift nur bei mehrseitigen Dokumenten; ein einseitiger Import ist eine bewusste Auswahl des Nutzers und wird nie wegen seiner Kürze verworfen.
 - **Dublettenprüfung:** Inhaltlich nahezu gleiche Lernziele innerhalb eines Dokuments werden verworfen. Verglichen wird die Überschneidung der Inhaltswörter; Zahlen zählen unabhängig von ihrer Länge mit, damit sich Aufzählungen, Formeln und Jahreszahlen weiterhin unterscheiden.
 
@@ -718,6 +721,19 @@ Referenz: `cloud-worker/`.
 
 Der Proxy nutzt Gemini. Ausschlaggebend sind zwei Eigenschaften: native Bildverarbeitung im selben Aufruf wie Text, was `analyzeImage` erst möglich macht, und ein kostenloses Kontingent, mit dem der persönliche Einzelbetrieb dem Kostenprinzip aus Kapitel 3.5 entspricht.
 
+### Modellwahl zur Laufzeit
+
+Ein fest eingetragener Modellname ist eine Zeitbombe. Google schaltet ältere Fassungen ab; mit `GEMINI_MODEL = "gemini-2.0-flash"` stand dadurch der gesamte Cloud-Pfad, mitten im Import eines Skriptes, mit einer englischen Fehlermeldung als einziger Erklärung. Deshalb gilt:
+
+- Der Worker fragt ab, welche Modelle der Schlüssel tatsächlich anbietet, und wählt daraus nach Rangfolge. Die Liste wird zwölf Stunden zwischengespeichert, eine leere Liste ausdrücklich nicht: sonst legte eine einzelne gestörte Antwort den Proxy für zwölf Stunden lahm.
+- Meldet das Modell sich als abgeschaltet, wird die Liste sofort neu geholt und der Aufruf genau einmal mit dem neuen Modell wiederholt. Ein laufender Import überlebt damit eine Abschaltung.
+- `GEMINI_MODELS` setzt eine eigene Rangfolge davor, `GEMINI_MODEL` erzwingt genau ein Modell und schaltet die Auflösung ab. Beides ist optional.
+- Der Healthcheck löst wirklich auf, statt nur zu prüfen, ob eine Variable gesetzt ist. Ein Healthcheck, der Konfiguration liest, hätte den abgeschalteten Modellnamen für gesund erklärt.
+
+### Aufgaben-zu-Modell-Zuordnung
+
+Nicht jede Aufgabe braucht dasselbe Modell. Lernziele, Karteikarten und Quizoptionen sind Extraktion aus vorgegebenem Text; Zusammenfassung, Tutor, Antwortbewertung und Bildverstehen tragen die inhaltliche Last. Erstere laufen auf dem günstigen Lite-Modell, letztere auf dem stärkeren Flash. Für die Extraktionsaufgaben sind Denkschritte abgeschaltet (`thinkingBudget: 0`), weil sie dort nichts beitragen, aber als Ausgabetokens abgerechnet werden; lehnt ein älteres Modell die Einstellung ab, wird der Aufruf ohne sie wiederholt. Die Antwortlänge ist je Aufgabe begrenzt statt pauschal auf 8192.
+
 Regeln:
 
 - `GEMINI_API_KEY` nur als serverseitiges Secret
@@ -744,6 +760,10 @@ Unterstützte Tasks:
 Daneben bedient derselbe Worker die Aufgaben `syncPull` und `syncPush` des Geräteabgleichs. Sie sind kein Modellaufruf, verbrauchen kein KI-Kontingent und liegen deshalb außerhalb der Tasktabelle.
 
 ### Kontingent und Kosten
+
+Der Proxy gibt die Tokenzahlen jeder Antwort an die PWA zurück, und die PWA zählt sie mit. Anfragen allein taugen nicht mehr als Maß, seit eine Anfrage zwölf Seiten tragen kann: sie kostet dann ein Vielfaches einer Anfrage über eine Seite. Abgerechnet wird nach Tokens, also werden Tokens gezählt; Denk-Tokens zählen zur Ausgabe, weil sie so abgerechnet werden.
+
+Im Profil lassen sich ein **Monatsbudget in Euro** und der **Preis je Million Tokens** hinterlegen. Der Preis steht nicht im Code, weil er sich ändert und je Modell verschieden ist; ohne Eintrag zeigt die App Tokens statt einer geratenen Zahl. Ist das Budget ausgeschöpft, wechselt AUTO auf LOCAL, genau wie beim Tageslimit. Damit ist eine Obergrenze nicht nur angezeigt, sondern durchgesetzt.
 
 Textaufgaben sind im kostenlosen Kontingent für den Einzelbetrieb in der Regel ausreichend abgedeckt. `analyzeImage` verbraucht pro Bild deutlich mehr Kontingent als eine Textanfrage. Werden Minuten- oder Tagesgrenzen erreicht, bleibt LOCAL der kostenfreie Fallback.
 
@@ -821,7 +841,7 @@ Externe Browserbibliotheken können beim ersten Abruf Internet benötigen und we
 
 Die Standardschriften von PDF.js liegen mit im Vorabspeicher, sonst scheitert das Rendern von PDFs ohne eingebettete Schriften beim ersten Gebrauch ohne Netz.
 
-**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v28, Fassungskennung der Skripte `?v=28`.
+**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v29, Fassungskennung der Skripte `?v=29`.
 
 ## 29. PWA-Datenmodell
 
@@ -1051,6 +1071,16 @@ MUST, SHOULD und OPTIONAL dieser Spezifikation sind umgesetzt und in `tests/` ge
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.32
+
+- Fehler behoben: der Proxy hatte `gemini-2.0-flash` fest eingetragen. Google hat das Modell abgeschaltet, womit der gesamte Cloud-Pfad stand — sichtbar als englische Fehlermeldung mitten im Import eines 187-seitigen Skriptes. Der Worker löst das Modell jetzt zur Laufzeit auf, ersetzt ein abgeschaltetes selbsttätig und speichert eine leere Modellliste nicht zwischen
+- Lernziele entstehen gebündelt: rund zwölf Seiten je Aufruf statt einer. Ein Skript mit 187 Seiten kostet damit rund 15 statt knapp 190 Aufrufe für die Lernziele
+- günstige Extraktionsaufgaben laufen auf dem Lite-Modell und ohne Denk-Tokens, Bewertung, Tutor und Bildverstehen weiterhin auf dem stärkeren Modell
+- Tokenverbrauch wird erfasst; Monatsbudget in Euro und Preis je Million Tokens sind im Profil einstellbar, und ein ausgeschöpftes Budget schaltet AUTO auf LOCAL
+- Fehlermeldungen des Anbieters werden übersetzt: die App nennt den nächsten Schritt und zeigt den Originaltext darunter
+- Importfortschritt steht in einer Zeile statt in einer Folge von Einblendungen; ein Fehlschlag erscheint als Blatt statt als Browserdialog
+- `tests/import.mjs` prüft den Import eines 24-seitigen Skriptes über den echten Worker-Code: Aufrufzahl, Seitenzuordnung, Tokenerfassung und den Ausfall mitten im Import
 
 ## Changelog 3.31
 

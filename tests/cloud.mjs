@@ -18,9 +18,10 @@ const ctx=await browser.newContext();
 const page=await ctx.newPage();
 const errors=[];
 page.on('pageerror',e=>errors.push(e.message));
-// Die Drosselungs- und Schluesselpruefung loesen absichtlich 429 und 401 aus;
-// der Browser meldet jede solche Antwort als Konsolenfehler.
-const erwartet=/status of (401|429)/;
+// 401, 429 und 502 werden hier absichtlich ausgeloest: falscher Schluessel,
+// Drosselung und ein abgeschaltetes Modell. Der Browser meldet jede solche
+// Antwort als Konsolenfehler.
+const erwartet=/status of (401|429|502)/;
 page.on('console',m=>{if(m.type()==='error'&&!erwartet.test(m.text()))errors.push(m.text());});
 await page.goto(BASE,{waitUntil:'networkidle'});
 
@@ -30,6 +31,9 @@ const health=await page.evaluate(async({url,key})=>{
   return window.AIService.testCloud();
 },{url:harness.url,key:harness.accessKey});
 step('Healthcheck ueber den Proxy',health?.ok===true&&health.sync===true,`Modell ${health?.model}, Sync ${health?.sync}`);
+step('Modell wird zur Laufzeit aufgeloest, nicht fest gesetzt',health?.erzwungen===false&&Boolean(health?.models?.stark));
+step('Guenstige Aufgaben laufen auf dem Lite-Modell',/lite/.test(health?.models?.guenstig||''),`${health?.models?.guenstig} statt ${health?.models?.stark}`);
+step('Nur Modelle mit generateContent kommen in Frage',!/embedding/.test(JSON.stringify(health?.models||{})));
 
 const tasks=await page.evaluate(async()=>{
   const tinyPng="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -98,6 +102,77 @@ const eskalation=await page.evaluate(async()=>{
   return {provider:r?.provider,policy:r?.policy};
 });
 step('AUTO eskaliert unsichere Bewertung in die Cloud',eskalation.provider==="CLOUD"&&eskalation.policy==="AUTO_CLOUD_ESCALATION",JSON.stringify(eskalation));
+
+// Der Produktionsfehler: ein abgeschaltetes Modell. Der Proxy muss sich selbst
+// ein neues suchen, statt den Import scheitern zu lassen.
+const abgeschaltetesModell=harness.letzterAufruf()?.model;
+harness.abschalten(abgeschaltetesModell);
+const nachAbschaltung=await page.evaluate(async()=>{
+  try{
+    const r=await window.AIService.summarize({text:"Ein Text nach der Abschaltung.",title:"T"});
+    return {ok:true,provider:r?.provider,model:r?.model};
+  }catch(e){return {ok:false,error:String(e.message||e)};}
+});
+step('Abgeschaltetes Modell wird selbsttaetig ersetzt',nachAbschaltung.ok&&nachAbschaltung.model!==abgeschaltetesModell,
+  `${abgeschaltetesModell} → ${nachAbschaltung.model||nachAbschaltung.error}`);
+
+// Bleibt gar kein Modell uebrig, muss die Meldung deutsch und handlungsfaehig
+// sein statt englischer Rohtext aus Kalifornien.
+harness.katalogSetzen(["embedding-001"]);
+const ohneModell=await page.evaluate(async()=>{
+  try{await window.AIService.summarize({text:"Text",title:"T"});return {fehler:null};}
+  catch(e){return {fehler:String(e.message||e)};}
+});
+step('Fehlende Modelle werden deutsch erklaert',/Modell|Schlüssel/.test(ohneModell.fehler||''),ohneModell.fehler?.slice(0,90));
+harness.katalogSetzen(["gemini-flash-latest","gemini-flash-lite-latest"]);
+
+// Tokens statt nur Anfragen: eine Anfrage ueber zwoelf Seiten kostet ein
+// Vielfaches einer Anfrage ueber eine Seite.
+const tokens=await page.evaluate(async()=>{
+  await window.AIService.setMode("CLOUD");
+  try{await window.AIService.summarize({text:"Ein längerer Lerntext. ".repeat(200),title:"T"});}
+  catch(e){return {fehler:String(e.message||e)};}
+  const u=await window.AIService.usage(1);
+  return {ein:u.month.tokensIn,aus:u.month.tokensOut,anfragen:u.month.anfragen};
+});
+step('Proxy erholt sich, sobald wieder Modelle da sind',!tokens.fehler,tokens.fehler||'');
+step('Tokenverbrauch wird erfasst',tokens.ein>0&&tokens.aus>0,`${tokens.ein} ein, ${tokens.aus} aus bei ${tokens.anfragen} Anfragen`);
+
+// Monatsbudget als Kostenbremse.
+const budget=await page.evaluate(async()=>{
+  await window.AIService.setTokenPrice({input:1000,output:1000});
+  await window.AIService.setMonthlyBudget(0.01);
+  let fehler=null;
+  try{await window.AIService.summarize({text:"Text",title:"T"});}catch(e){fehler=String(e.message||e);}
+  await window.AIService.setMode("AUTO");
+  const auto=await window.AIService.summarize({text:"Ein Satz. Noch einer.",title:"T"});
+  await window.AIService.setMonthlyBudget(0);
+  await window.AIService.setTokenPrice({input:0,output:0});
+  await window.AIService.setMode("CLOUD");
+  return {fehler,autoProvider:auto?.provider};
+});
+step('Monatsbudget bremst CLOUD',/Monatsbudget/.test(budget.fehler||''),budget.fehler?.slice(0,80));
+step('AUTO weicht bei erschoepftem Budget auf LOCAL aus',budget.autoProvider==="LOCAL");
+
+// Denkschritte kosten Ausgabetokens; bei reiner Extraktion sind sie abgeschaltet.
+const denken=await page.evaluate(async()=>{
+  await window.AIService.generateLearningGoals({pages:[{page:1,text:"Die Zelle ist die kleinste Einheit."}],title:"T"});
+  return true;
+});
+const extraktion=harness.letzterAufruf();
+step('Extraktion laeuft ohne Denk-Tokens',extraktion?.thinking===0,`thinkingBudget ${extraktion?.thinking}`);
+await page.evaluate(()=>window.AIService.evaluateFreeAnswer({expected:"a",answer:"b",question:"c"}));
+step('Bewertung darf weiterhin denken',harness.letzterAufruf()?.thinking===undefined);
+
+// Mehrere Seiten in einem Aufruf.
+const gebuendelt=await page.evaluate(async()=>{
+  const seiten=Array.from({length:10},(_,i)=>({page:i+1,text:`Seite ${i+1}: Die Zelle ist die kleinste Einheit des Lebens.`}));
+  const r=await window.AIService.generateLearningGoals({pages:seiten,title:"Skript"});
+  return {goals:r?.goals?.length||0,mitSeite:(r?.goals||[]).every(g=>Number.isFinite(Number(g.sourcePage)))};
+});
+const aufrufe=harness.calls.filter(c=>!c.liste).length;
+step('Zehn Seiten kosten einen Aufruf',gebuendelt.goals>0,`${gebuendelt.goals} Lernziele aus einem Aufruf`);
+step('Lernziele tragen ihre Seite',gebuendelt.mitSeite);
 
 if(errors.length){failures++;console.log('\nKonsolenfehler: '+JSON.stringify(errors,null,1));}
 else console.log('\nKonsolenfehler: keine');

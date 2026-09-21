@@ -64,16 +64,32 @@ function usageDayKey(date=new Date()){
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 }
 
-function emptyUsageDay(){return {total:0,ok:0,failed:0,tasks:{}};}
+function emptyUsageDay(){return {total:0,ok:0,failed:0,tasks:{},tokensIn:0,tokensOut:0};}
+
+// Anfragen zu zaehlen reicht nicht mehr, seit eine Anfrage zwoelf Seiten tragen
+// kann: sie kostet dann ein Vielfaches einer Anfrage ueber eine Seite. Bezahlt
+// wird nach Tokens, also werden Tokens gezaehlt. Denk-Tokens zaehlen zu den
+// Ausgabetokens, weil sie genauso abgerechnet werden.
+function usageTokens(body){
+  const usage=body?.usage||{};
+  return {
+    ein:Math.max(0,Number(usage.prompt)||0),
+    aus:Math.max(0,Number(usage.output)||0)+Math.max(0,Number(usage.thoughts)||0)
+  };
+}
 
 // Gezählt wird jede an den Proxy gesendete Anfrage, nicht jede Aufgabe: bei
 // Drosselung wiederholt der Client, und jeder Versuch verbraucht Kontingent.
-async function recordCloudUsage(task,ok){
+async function recordCloudUsage(task,ok,tokens=null){
   const record=(await readSettingsRecord(USAGE_RECORD_ID))||{id:USAGE_RECORD_ID,days:{}};
   const key=usageDayKey();
   const day={...emptyUsageDay(),...record.days[key]};
   day.total++;
   if(ok)day.ok++;else day.failed++;
+  if(tokens){
+    day.tokensIn=(day.tokensIn||0)+tokens.ein;
+    day.tokensOut=(day.tokensOut||0)+tokens.aus;
+  }
   day.tasks={...day.tasks,[task]:(day.tasks[task]||0)+1};
   record.days={...record.days,[key]:day};
   const keys=Object.keys(record.days).sort();
@@ -84,6 +100,31 @@ async function recordCloudUsage(task,ok){
 async function cloudUsageToday(){
   const record=await readSettingsRecord(USAGE_RECORD_ID);
   return {...emptyUsageDay(),...record?.days?.[usageDayKey()]};
+}
+
+// Preis je Million Tokens in Euro. Er steht nicht fest im Code, weil Preise
+// sich aendern und je Modell unterschiedlich sind; er wird im Profil
+// eingetragen. Ohne Eintrag zeigt die App Tokens statt einer erfundenen Zahl.
+const DEFAULT_PRICE={input:0,output:0};
+
+function monthKey(date=new Date()){
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}`;
+}
+
+async function monthlySpend(){
+  const record=await readSettingsRecord(USAGE_RECORD_ID);
+  const settings=await readAppSettings();
+  const preis={...DEFAULT_PRICE,...(settings.tokenPrice||{})};
+  const praefix=monthKey();
+  let tokensIn=0,tokensOut=0,anfragen=0;
+  for(const [tag,werte] of Object.entries(record?.days||{})){
+    if(!tag.startsWith(praefix))continue;
+    tokensIn+=Number(werte.tokensIn)||0;
+    tokensOut+=Number(werte.tokensOut)||0;
+    anfragen+=Number(werte.total)||0;
+  }
+  const euro=(tokensIn/1e6)*(Number(preis.input)||0)+(tokensOut/1e6)*(Number(preis.output)||0);
+  return {month:praefix,tokensIn,tokensOut,anfragen,euro,preis,budget:Number(settings.monthlyBudget)||0};
 }
 
 function normalizeMode(value){
@@ -237,6 +278,31 @@ const localProvider={
   }
 };
 
+// Der Proxy liefert zum Fehler einen Code. Ohne Uebersetzung stuende eine
+// englische Meldung aus Kalifornien in der Oberflaeche, die dem Lernenden nicht
+// sagt, was er tun soll.
+const CLOUD_ERROR_TEXTS={
+  MODEL_UNAVAILABLE:"Das eingestellte KI-Modell gibt es nicht mehr. Der Proxy sucht sich normalerweise selbst ein neues; ist im Worker GEMINI_MODEL fest gesetzt, muss dieser Eintrag entfernt werden.",
+  NO_KEY:"Im Worker fehlt der Schlüssel GEMINI_API_KEY.",
+  NO_MODEL:"Der hinterlegte Schlüssel bietet derzeit kein nutzbares Modell an.",
+  THROTTLED:"Das kostenlose Kontingent ist gerade erschöpft. Später erneut versuchen; LOCAL funktioniert weiter.",
+  TOO_LARGE:"Der Abschnitt ist zu umfangreich für einen Aufruf.",
+  TRUNCATED:"Die Antwort wurde abgeschnitten. Bitte einen kleineren Abschnitt verarbeiten.",
+  BLOCKED:"Das Modell hat die Anfrage abgelehnt.",
+  BAD_JSON:"Die Antwort des Modells war nicht auswertbar.",
+  EMPTY:"Das Modell hat kein Ergebnis geliefert."
+};
+
+function cloudError(body,status){
+  const code=body?.code;
+  const text=CLOUD_ERROR_TEXTS[code];
+  const original=String(body?.error||"").trim();
+  const error=new Error(text?`${text}${original?` (${original})`:""}`:(original||`Cloud-Anfrage fehlgeschlagen (${status})`));
+  error.code=code||"UPSTREAM";
+  error.status=status;
+  return error;
+}
+
 const CLOUD_RETRY_STATUS=new Set([429,503]);
 const CLOUD_MAX_ATTEMPTS=4;
 const CLOUD_BASE_DELAY_MS=2000;
@@ -262,10 +328,18 @@ async function cloudUnavailableReason(){
   const cfg=await cloudConfig();
   if(!cfg.endpoint)return "Cloud-KI ist noch nicht konfiguriert.";
   if(!navigator.onLine)return "Cloud-KI ist offline nicht verfügbar.";
-  const limit=Number((await readAppSettings()).cloudDailyLimit)||0;
+  const settings=await readAppSettings();
+  const limit=Number(settings.cloudDailyLimit)||0;
   if(limit>0){
     const used=(await cloudUsageToday()).total;
     if(used>=limit)return `Das Tageslimit von ${limit} Cloud-Anfragen ist erreicht. LOCAL bleibt kostenfrei verfügbar.`;
+  }
+  // Das Monatsbudget ist die eigentliche Kostenbremse. Es greift nur, wenn ein
+  // Preis hinterlegt ist; ohne Preis waere jede Schaetzung geraten.
+  const budget=Number(settings.monthlyBudget)||0;
+  if(budget>0){
+    const spend=await monthlySpend();
+    if(spend.euro>=budget)return `Das Monatsbudget von ${budget.toFixed(2)} € ist ausgeschöpft (${spend.euro.toFixed(2)} € verbraucht). LOCAL bleibt kostenfrei verfügbar.`;
   }
   return null;
 }
@@ -286,9 +360,11 @@ async function cloudRequest(task,payload,{countsAsAIUsage=true}={}){
     const response=await fetch(cfg.endpoint,{method:"POST",headers,body:request});
     let body=null;
     try{body=await response.json();}catch{}
-    if(countsAsAIUsage)await recordCloudUsage(task,response.ok).catch(()=>{});
+    if(countsAsAIUsage)await recordCloudUsage(task,response.ok,response.ok?usageTokens(body):null).catch(()=>{});
     if(response.ok)return body;
-    if(!CLOUD_RETRY_STATUS.has(response.status)||attempt>=CLOUD_MAX_ATTEMPTS)throw new Error(body?.error||`Cloud-Anfrage fehlgeschlagen (${response.status})`);
+    if(!CLOUD_RETRY_STATUS.has(response.status)||attempt>=CLOUD_MAX_ATTEMPTS){
+      throw cloudError(body,response.status);
+    }
     const delay=cloudRetryDelay(attempt,response.headers.get("Retry-After"));
     window.dispatchEvent(new CustomEvent("lernapp:cloud-throttled",{detail:{delayMs:delay,attempt,task}}));
     await new Promise(resolve=>setTimeout(resolve,delay));
@@ -343,7 +419,7 @@ const AIService={
     const started=performance.now();
     const response=await fetch(cfg.endpoint,{method:"POST",headers,body:JSON.stringify({task:"health",payload:{}})});
     let body=null;try{body=await response.json();}catch{}
-    if(!response.ok)throw new Error(body?.error||`Verbindung fehlgeschlagen (${response.status})`);
+    if(!response.ok||body?.ok===false)throw cloudError(body,response.status);
     return {...body,latencyMs:Math.round(performance.now()-started)};
   },
   async usage(days=7){
@@ -357,7 +433,22 @@ const AIService={
       recent.push({date:key,...emptyUsageDay(),...stored[key]});
     }
     const limit=Number((await readAppSettings()).cloudDailyLimit)||0;
-    return {today:await cloudUsageToday(),days:recent,limit,blockedReason:await cloudUnavailableReason()};
+    return {today:await cloudUsageToday(),days:recent,limit,month:await monthlySpend(),blockedReason:await cloudUnavailableReason()};
+  },
+  async setMonthlyBudget(euro){
+    const value=Math.max(0,Number(String(euro).replace(",","."))||0);
+    await writeAppSettings({monthlyBudget:value});
+    window.dispatchEvent(new CustomEvent("lernapp:ai-usage-changed"));
+    return value;
+  },
+  async setTokenPrice({input,output}={}){
+    const price={
+      input:Math.max(0,Number(String(input).replace(",","."))||0),
+      output:Math.max(0,Number(String(output).replace(",","."))||0)
+    };
+    await writeAppSettings({tokenPrice:price});
+    window.dispatchEvent(new CustomEvent("lernapp:ai-usage-changed"));
+    return price;
   },
   async setDailyLimit(limit){
     const value=Math.max(0,Math.floor(Number(limit)||0));
