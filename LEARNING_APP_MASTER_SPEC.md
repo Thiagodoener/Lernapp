@@ -1,6 +1,6 @@
 # LEARNING_APP_MASTER_SPEC
 
-## Version 3.30 — 21.09.2026
+## Version 3.31 — 21.09.2026
 
 > **Single Source of Truth für das gesamte Projekt Lernapp.**  
 > Diese Datei definiert Produktziel, Lernlogik, Funktionsumfang, Architekturregeln, Betriebsmodi, Qualitätsanforderungen, aktuellen Implementierungsstatus und offene Arbeiten. Neue Funktionen oder Architekturentscheidungen müssen hier nachgeführt werden.
@@ -52,9 +52,9 @@ Die zentrale Differenzierung gegenüber einem einfachen KI-Chat oder Karteikarte
 
 ### OPTIONAL / SPÄTER
 
-- Knowledge Map als visuelle Darstellung von Konzepten und Beziehungen
-- weitergehende Gamification wie XP/Levels, sofern sie das Lernen unterstützt und nicht vom Kernziel ablenkt
-- zusätzliche Cloud-/Provider-Optionen
+- Knowledge Map als visuelle Darstellung von Konzepten und Beziehungen — **umgesetzt**, siehe Kapitel 19.1
+- weitergehende Gamification wie XP/Levels, sofern sie das Lernen unterstützt und nicht vom Kernziel ablenkt — **umgesetzt**, siehe Kapitel 20
+- zusätzliche Cloud-/Provider-Optionen — offen, siehe die Providerentscheidung in Kapitel 26
 
 ## 3. Leitprinzipien
 
@@ -259,6 +259,8 @@ Mastery, Stabilität und Wissenslücken werden an genau einer Stelle berechnet (
 - wichtige Inhalte priorisieren
 - Quellen-/Seitenbezug erhalten
 - Highlights direkt mit Quelle verbinden
+
+Die Auswahl ist deterministisch und kostet keinen KI-Aufruf. Gewichtet wird, was in Studienmaterial den Lernstoff trägt: Definitions- und Funktionsaussagen, seltene Fachbegriffe gemessen an ihrer Häufigkeit im Dokument selbst, konkrete Zahlenangaben und eine frühe Stelle auf der Seite. Verweise und Überleitungen — „Abbildung 3 zeigt", „Im Folgenden", „vgl." — fallen ganz heraus statt nur niedriger bewertet zu werden, weil sie sonst bei wenigen Sätzen trotzdem als Highlight dastünden. Nahezu gleiche Sätze werden wie in Kapitel 8 über die Überschneidung der Inhaltswörter zusammengefasst. An der Quelle steht, warum eine Stelle hervorgehoben wurde.
 - Zusammenfassungen erzeugen keine Mastery-Evidence
 
 ### Umfangreiche Dokumente
@@ -352,7 +354,7 @@ Das Quiz entsteht aus den vorhandenen Karteikarten und fragt zuerst die schwäch
 
 Eine ausgewählte Antwort ist Wiedererkennung, kein freier Abruf. Die Evidence trägt deshalb `independentRecall: false` und wird in der Mastery nur halb gewichtet; die Confidence bleibt niedrig, weil eine richtige Antwort geraten sein kann. Das Quiz verschiebt bewusst keine FSRS-Intervalle, weil dafür die Selbsteinschätzung aus dem Review maßgeblich ist.
 
-**Status:** gemeinsame AIService-Pipeline für Selbsttests und Prüfungssimulation implementiert. LOCAL verwendet konservative Heuristik; hochwertige semantische CLOUD-Bewertung ist vorbereitet, aber noch nicht live end-to-end getestet. Multiple Choice ist implementiert.
+**Status:** gemeinsame AIService-Pipeline für Selbsttests und Prüfungssimulation implementiert. LOCAL verwendet konservative Heuristik. Die CLOUD-Bewertung ist über den echten Worker-Code end-to-end geprüft (`tests/cloud.mjs`); offen bleibt allein die Antwortqualität des tatsächlichen Modells unter realem Kontingent. Multiple Choice ist implementiert.
 
 ## 11. Wissenslücken
 
@@ -552,6 +554,19 @@ Daraus entstehen Lernzeit heute und über sieben Tage, die mittlere Antwortzeit 
 
 **Status:** implementiert, MUST und SHOULD vollständig.
 
+### 19.1 Wissenslandkarte
+
+Die Karte zeigt, welche Fachbegriffe die Lernziele eines Moduls verbinden. Sie wird aus den vorhandenen Lernzielen abgeleitet und nicht zusätzlich gespeichert: Kapitel 29 rät von neuen Stores ab, Kapitel 5 lässt vereinfachte lokale Repräsentationen ausdrücklich zu, und eine Ableitung kostet nach Kapitel 3.5 keinen KI-Aufruf.
+
+- **Concept** = ein Fachbegriff, der in mindestens zwei Lernzielen desselben Moduls vorkommt. Aufgabenwörter wie „erkläre" oder „beschreibe" sind ausgeschlossen.
+- **ConceptRelationship** = zwei Begriffe, die sich mindestens ein Lernziel teilen.
+- Die Größe eines Knotens zeigt, in wie vielen Lernzielen der Begriff vorkommt, die Farbe den Wissensstand dieser Lernziele.
+- Ein angetippter Begriff führt zu seinen Lernzielen; die Karte ist damit ein Einstieg ins Lernen und keine Schauseite.
+
+Die Zuordnung ist bewusst deterministisch. Eine von der KI geratene Begriffshierarchie wäre schlechter als gar keine, weil falsche Voraussetzungen den Lernplan in eine falsche Richtung lenken würden; siehe die offene Entscheidung in Kapitel 8.
+
+**Status:** implementiert.
+
 ## 20. Gamification
 
 Gamification soll motivieren, aber wissenschaftliche Lernsteuerung nicht verzerren.
@@ -569,6 +584,19 @@ OPTIONAL:
 - Badges/Meilensteine
 
 Keine Belohnung darf dazu führen, dass bloßes Öffnen/Lesen als Mastery gewertet wird.
+
+### Punkte, Stufen und Meilensteine
+
+Umgesetzt unter vier Bedingungen, die sich aus dem Satz oben ergeben:
+
+1. **Punkte entstehen ausschließlich aus Evidence.** Ein geöffneter Bildschirm, eine gelesene Zusammenfassung und eine Tutorantwort erzeugen nichts.
+2. **Punkte werden abgeleitet, nicht gezählt.** Ein gespeicherter Zähler ließe sich durch wiederholtes Öffnen hochtreiben; eine Ableitung aus den vorhandenen Nachweisen nicht.
+3. **Gewichtet wird wie in der Mastery.** Ergebnis und Confidence gehen ein, Wiedererkennung zählt halb, eine falsche Antwort bringt kaum etwas. Der kleine Sockel hält den Versuch selbst etwas wert, ohne dass sich mit falschen Antworten Punkte sammeln ließen.
+4. **Punkte steuern nichts.** Sie verändern weder Mastery noch Wissenslücken noch den Lernplan.
+
+Die Stufen wachsen quadratisch, damit späte Stufen etwas bedeuten. Meilensteine markieren Lernereignisse — erster Nachweis, erstes beherrschtes Lernziel, Lernserien, abgeschlossene Prüfungssimulation, erschlossener Stoff, überwiegend freier Abruf — und keine Nutzungsdauer.
+
+**Status:** implementiert.
 
 ## 21. Dashboard / Heute
 
@@ -793,7 +821,7 @@ Externe Browserbibliotheken können beim ersten Abruf Internet benötigen und we
 
 Die Standardschriften von PDF.js liegen mit im Vorabspeicher, sonst scheitert das Rendern von PDFs ohne eingebettete Schriften beim ersten Gebrauch ohne Netz.
 
-**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v27, Fassungskennung der Skripte `?v=27`.
+**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v28, Fassungskennung der Skripte `?v=28`.
 
 ## 29. PWA-Datenmodell
 
@@ -936,10 +964,10 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | Aktualisierungen erreichen installierte Geräte | IMPLEMENTIERT |
 | OCR-Fallback | IMPLEMENTIERT, Geräte-Endtest offen |
 | Bildimport (Foto, Mitschrift, Folie, Skizze) | IMPLEMENTIERT, Geräte-Endtest offen |
-| Bildverstehen im CLOUD-Modus | IMPLEMENTIERT, Live-Test nach Deployment offen |
+| Bildverstehen im CLOUD-Modus | IMPLEMENTIERT, Pfad im Worker-Test geprüft, Modellqualität nach Deployment offen |
 | Material löschen | IMPLEMENTIERT, Cascade im Browsertest geprüft, Geräte-Endtest offen |
 | Zusammenfassungen | IMPLEMENTIERT |
-| Highlights | IMPLEMENTIERT / Qualitätsaudit offen |
+| Highlights | IMPLEMENTIERT mit priorisierender Auswahl, im Browsertest geprüft |
 | Lernziele | IMPLEMENTIERT |
 | automatische Karteikarten | IMPLEMENTIERT |
 | Relevanzprüfung beim Import | IMPLEMENTIERT |
@@ -948,7 +976,7 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | manuelle Karteikarten | IMPLEMENTIERT |
 | FSRS | IMPLEMENTIERT, im Browsertest geprüft |
 | Quiz/offene Fragen | IMPLEMENTIERT |
-| freie Antwortbewertung | IMPLEMENTIERT; Cloud-E2E offen |
+| freie Antwortbewertung | IMPLEMENTIERT, Cloud-Pfad im Worker-Test geprüft |
 | Mastery 4 Dimensionen | IMPLEMENTIERT |
 | Stabilität je Lernziel | IMPLEMENTIERT |
 | Assessment-Aufgabe im Tagesplan | IMPLEMENTIERT |
@@ -967,10 +995,10 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | Fortschrittsverlauf über die Zeit | IMPLEMENTIERT |
 | Zusammenfassung umfangreicher Dokumente | IMPLEMENTIERT |
 | Streak | IMPLEMENTIERT |
-| erweiterte Gamification | OPTIONAL/OFFEN |
+| erweiterte Gamification | IMPLEMENTIERT nach den Grenzen aus Kapitel 20 |
 | JSON Backup/Restore | IMPLEMENTIERT |
 | Multiple Choice / Quiz | IMPLEMENTIERT |
-| Abgleich zwischen Geräten | IMPLEMENTIERT inklusive KV-Bindung, Durchlauf mit zwei Geräten offen |
+| Abgleich zwischen Geräten | IMPLEMENTIERT, mit zwei unabhängigen Clients gegen den Worker-Code geprüft |
 | LOCAL/AUTO/CLOUD | IMPLEMENTIERT |
 | Cloud-Proxy-Code | IMPLEMENTIERT |
 | Cloud-Proxy live | IMPLEMENTIERT, Verbindung aus der PWA bestätigt |
@@ -979,8 +1007,9 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | Selbstcheck nach Kapitel 33 | IMPLEMENTIERT |
 | iOS-Gestaltung nach HIG | IMPLEMENTIERT |
 | Erscheinungsbild umschaltbar | IMPLEMENTIERT |
-| Knowledge Map | OPTIONAL/OFFEN |
-| vollständiger iPhone/iPad Endtest | OFFEN |
+| Knowledge Map | IMPLEMENTIERT als abgeleitete Wissenslandkarte |
+| iPhone-/iPad-Geometrie und Safari-Rückfall | IM BROWSERTEST GEPRÜFT |
+| vollständiger iPhone/iPad Endtest auf echter Hardware | OFFEN, nur am Gerät möglich |
 
 ## 35. Abnahmekriterien für die persönliche PWA
 
@@ -1009,21 +1038,29 @@ Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad 
 19. LOCAL/AUTO/CLOUD-Modi testen.
 20. CLOUD nach Proxy-Deployment für alle sieben AIService-Aufgaben testen.
 
-## 36. Offene Prioritäten ab Version 3.30
+## 36. Offene Prioritäten ab Version 3.31
 
-Die verbleibenden Punkte sind ausschließlich externe Tests an realer Hardware und reale Inhaltsprüfungen; codeseitig ist der MUST-Umfang dieser Spezifikation erfüllt.
+MUST, SHOULD und OPTIONAL dieser Spezifikation sind umgesetzt und in `tests/` gegen die ausgelieferte App geprüft. Was offen bleibt, lässt sich ausschließlich mit eigener Hardware und eigenen Konten abschließen; niemand kann es an ihrer Stelle erledigen:
 
-1. Geräteabgleich mit zwei echten Geräten durchspielen.
-2. Alle sieben CLOUD-AIService-Funktionen E2E testen, insbesondere `analyzeImage` mit einer echten handschriftlichen Mitschrift.
-3. Highlights inhaltlich gegen reale Studienunterlagen prüfen.
-4. Erweiterte Gamification bewerten, soweit sie das Lernen stützt (OPTIONAL nach Kapitel 2 und 20).
-5. Knowledge Map bewerten (OPTIONAL nach Kapitel 2).
-6. vollständigen iPhone/iPad-Abnahmetest nach Kapitel 35 durchführen.
-7. danach Release Candidate der persönlichen PWA erstellen.
+1. **Abnahmetest auf echtem iPhone und iPad** nach Kapitel 35. Die Geometrie, die Touchziele und der Safari-Rückfall sind im Browsertest geprüft, die Safari-Engine selbst nicht.
+2. **Cloud-Proxy deployen und mit eigenem Google-Schlüssel fahren.** Der Worker-Code ist mit allen sieben Aufgaben geprüft; offen ist die Antwortqualität des echten Modells, insbesondere `analyzeImage` an einer echten handschriftlichen Mitschrift.
+3. **Geräteabgleich zwischen zwei physischen Geräten.** Die Zusammenführung ist mit zwei unabhängigen Clients gegen den Worker-Code geprüft; offen ist der Betrieb über zwei echte Installationen.
+4. **Highlights an eigenen Studienunterlagen beurteilen.** Die Auswahlregel ist geprüft, ihre fachliche Treffsicherheit hängt am Material.
+5. Danach Release Candidate der persönlichen PWA erstellen.
 
 ## 37. Änderungsregel
 
 Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frühere Phase-Dokumente und Changelogs sind historische/technische Detailquellen. Bei Widersprüchen muss entweder diese Master Specification aktualisiert oder der Widerspruch ausdrücklich als offene Entscheidung dokumentiert werden.
+
+## Changelog 3.31
+
+- Wissenslandkarte nach Kapitel 2 und 5: Begriffe und ihre Beziehungen werden aus den Lernzielen abgeleitet, nicht zusätzlich gespeichert, und führen per Antippen zum Lernziel
+- Fortschrittspunkte, Stufen und Meilensteine nach Kapitel 20, ausschließlich aus Evidence abgeleitet und gewichtet wie die Mastery; Durchklicken bringt nichts und verändert den Wissensstand nicht
+- Highlights priorisieren nach Definitionen, Fachbegriffen, Zahlenangaben und Stellung auf der Seite; Verweise und Überleitungen fallen heraus, der Grund der Hervorhebung steht an der Quelle
+- Fehler behoben: der Geräteabgleich übertrug Proxy-Endpunkt und Zugriffsschlüssel doch. Die Zusammenführung hielt sie lokal fest, schrieb sie aber in den hochgeladenen Stand; der persönliche Schlüssel lag damit im Klartext beim Proxy, was Kapitel 23 ausschließt. Nebenwirkung war ein Upload bei jedem Abgleich
+- Fehler behoben: drei Bedienelemente blieben unter den 44 px aus Kapitel 27; sie sehen weiterhin zierlich aus, ihr Touchziel erreicht jetzt die geforderte Größe
+- sechs Testreihen in `tests/`: Abnahmekriterien, Offline-Start, alle sieben CLOUD-Aufgaben gegen den echten Worker-Code, Geräteabgleich mit zwei Clients, iPhone-/iPad-Geometrie samt Safari-Rückfall und die optionalen Teile
+- Kapitel 36 nennt nur noch, was ohne eigene Hardware und eigene Konten nicht abschließbar ist
 
 ## Changelog 3.30
 

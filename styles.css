@@ -422,6 +422,23 @@ hr{border:0;border-top:1px solid var(--line);opacity:.6;margin:16px 0}
 .highlight{border-left:3px solid var(--tint);padding-left:12px;margin:14px 0}
 .empty{text-align:center;padding:32px 16px;color:var(--muted);font-size:15px}
 .hidden{display:none!important}
+
+/* --- Wissenslandkarte und Meilensteine ----------------------------------- */
+
+.knowledge-map{
+  display:block;
+  width:100%;
+  max-width:340px;
+  margin:12px auto;
+  overflow:visible;
+}
+.map-node{cursor:pointer}
+.map-node:active circle{fill-opacity:.4}
+.map-node:focus-visible{outline:2px solid var(--tint);outline-offset:2px;border-radius:50%}
+.map-node-count{font-size:11px;font-weight:600;fill:var(--text)}
+.map-node-label{font-size:9px;fill:var(--muted)}
+.badge-grid{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.badge-grid .badge:not(.good){opacity:.5}
 .spaced-top{margin-top:14px}
 
 /* Kap. 27: der Offline-Zustand muss sichtbar sein, ohne das Lernen zu stoeren.

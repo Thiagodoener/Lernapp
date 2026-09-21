@@ -1359,9 +1359,14 @@ async function renderProgress() {
         <div class="small muted">${x.answeredCount||0} von ${x.items?.length||0} beantwortet · ${x.weakGoalIds?.length||0} schwache Lernziele</div>
       </div>`).join(""):`<div class="empty">Noch keine abgeschlossene Simulation.</div>`}
     </section>
+    <div id="map-slot"></div>
+    <div id="gamification-slot"></div>
     <section class="card"><h2>Wissenslücken</h2>
       ${gaps.length?gaps.slice(0,20).map(g=>`<div class="list-item clickable" data-open-goal="${g.goalId}"><strong>${esc(window.LernappMastery?.gapLabel(g.type)||g.type)}</strong><div class="small muted">${esc(g.reason)}</div></div>`).join(""):`<div class="empty">Keine offenen Wissenslücken.</div>`}
     </section>`;
+  // Wissenslandkarte und Fortschrittspunkte haengen sich an diese Stelle, so
+  // wie Quiz und Abgleich an ihre Slots. Kap. 20 und Kap. 2, beide OPTIONAL.
+  document.dispatchEvent(new CustomEvent("lernapp:progress-rendered"));
   $("#add-exam")?.addEventListener("click",()=>showExamForm());
   content.querySelectorAll("[data-delete-exam]").forEach(button=>{
     button.onclick=async()=>{

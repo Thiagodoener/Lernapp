@@ -18,6 +18,8 @@ Kostenloser, offline-first Personal Mode für iPhone/iPad und moderne Browser.
 - konservative Evidence-/Mastery-Berechnung in vier Wissensdimensionen
 - Stabilität je Lernziel aus den FSRS-Intervallen
 - Knowledge Gaps
+- Wissenslandkarte der Begriffe eines Moduls
+- Fortschrittspunkte und Meilensteine, ausschließlich aus Lernnachweisen
 - Tagesplan
 - lokale Prüfungssimulation mit 30-Minuten-Timer
 - SpeechRecognition für mündliche Antworten, falls Safari es bereitstellt
@@ -54,8 +56,7 @@ Dann `http://localhost:8080` öffnen.
 ```bash
 npm install --no-save playwright
 npx http-server -p 8099 -s .
-node tests/e2e.mjs
-node tests/offline.mjs
+node tests/all.mjs
 ```
 
 Beide Tests fahren die App in einem echten Browser und prüfen die

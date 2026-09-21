@@ -16,8 +16,18 @@ npx playwright install chromium   # entfällt, wenn ein Chromium bereits vorhand
 
 ```bash
 npx http-server -p 8099 -s .      # in einem zweiten Terminal laufen lassen
-node tests/e2e.mjs
-node tests/offline.mjs
+node tests/all.mjs                # alle Reihen nacheinander
+```
+
+Einzeln:
+
+```bash
+node tests/e2e.mjs        # Abnahmekriterien aus Kapitel 35
+node tests/offline.mjs    # Offline-Zustand und Neustart ohne Netz
+node tests/cloud.mjs      # alle sieben CLOUD-Aufgaben gegen den echten Worker
+node tests/sync.mjs       # Geräteabgleich mit zwei unabhängigen Clients
+node tests/mobile.mjs     # iPhone-/iPad-Geometrie und Safari-Rückfall
+node tests/optional.mjs   # Wissenslandkarte und Gamification
 ```
 
 Beide Tests beenden sich mit Rückgabewert 1, sobald eine Prüfung fehlschlägt
@@ -41,3 +51,38 @@ nicht abgedeckt.
 
 Sichtbarkeit des Offline-Zustands nach Kapitel 27 und den Neustart ohne Netz
 aus dem Service-Worker-Cache nach Kapitel 28.
+
+## Was `cloud.mjs` und `sync.mjs` prüfen
+
+`worker-harness.mjs` fährt den echten Proxy aus `cloud-worker/src/index.js` in
+Node. Ersetzt sind nur das Modell und der KV-Speicher: die Antwort des
+Ersatzmodells wird aus dem `responseSchema` gebildet, das der Worker selbst
+mitschickt. Getestet wird damit der Worker-Code, nicht ein Nachbau.
+
+`cloud.mjs` prüft alle sieben AIService-Aufgaben im Modus CLOUD, den
+Healthcheck, den Zugriffsschlüssel, das Nutzungsprotokoll, das Tageslimit, den
+AUTO-Rückfall auf LOCAL und die Wiederholung nach Drosselung.
+
+`sync.mjs` spielt den Geräteabgleich mit zwei unabhängigen Browserkontexten
+durch: leeres Standardmodul, Zusammenführung je Datensatz, Löschmarken,
+Revisionskonflikt und die Vereinigung des Fortschrittsverlaufs.
+
+Was diese Reihen **nicht** abdecken: die Antwortqualität des echten Modells und
+das Verhalten unter dem tatsächlichen Kontingent. Dafür braucht es ein
+Deployment mit eigenem Google-Schlüssel.
+
+## Was `mobile.mjs` prüft
+
+iPhone- und iPad-Geometrie, waagerechten Überlauf, Touchziele nach Kapitel 27,
+Erscheinungsbild und den Safari-Rückfall aus `compat.js`, indem die asynchrone
+Iteration über `ReadableStream` vor dem Laden entfernt wird.
+
+Wichtige Einschränkung: hier läuft Chromium mit iPhone- und iPad-Kennwerten,
+nicht WebKit. Das Verhalten der Safari-Engine selbst bleibt am echten Gerät zu
+prüfen.
+
+## Was `optional.mjs` prüft
+
+Wissenslandkarte und Fortschrittspunkte samt der Grenze aus Kapitel 20:
+Durchklicken durch die App darf keine Punkte bringen und den Wissensstand nicht
+verändern.

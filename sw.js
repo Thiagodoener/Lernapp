@@ -1,4 +1,4 @@
-const VERSION = "v27";
+const VERSION = "v28";
 const CACHE = `lernapp-pwa-${VERSION}`;
 
 // Diese Dateien aendern sich mit jeder Korrektur.
@@ -6,7 +6,7 @@ const APP_FILES = [
   "./","./index.html","./styles.css","./compat.js","./app.js","./ai-service.js","./mastery.js","./import-ai.js",
   "./appearance.js","./profile-ai-mode.js","./cloud-settings.js","./ai-usage.js","./audit.js",
   "./summaries-ai.js","./free-answer-ai.js","./exam-ai.js","./tutor-ai.js","./material-delete.js",
-  "./quiz.js","./sync.js",
+  "./quiz.js","./knowledge-map.js","./gamification.js","./sync.js",
   "./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png"
 ];
 
