@@ -295,6 +295,8 @@ Die Dublettenprüfung wirkt bewusst nur innerhalb eines Dokuments. Dokumentüber
 
 Beides dient zugleich dem Kostenprinzip: jede übersprungene Seite spart einen vollständigen KI-Aufruf.
 
+**Offene Entscheidung nach Kapitel 37:** Voraussetzungen und Beziehungen zwischen Lernzielen (`LearningGoalPrerequisite`, `ConceptRelationship`) sind bewusst nicht modelliert. Kapitel 8 fordert sie nur „nach Möglichkeit“, und verlässliche Voraussetzungsketten ließen sich aus seitenweise erzeugten Lernzielen nicht ohne Raten bilden. Falsche Voraussetzungen würden den Lernplan schlechter steuern als gar keine. Der Punkt gehört zur Knowledge Map aus Kapitel 2 und wird mit ihr entschieden.
+
 **Status:** automatische Generierung über `AIService.generateLearningGoals()` implementiert; lokale Baseline und Cloud-Schnittstelle vorhanden. Relevanz- und Dublettenprüfung implementiert.
 
 ## 9. Karteikarten und FSRS
@@ -614,7 +616,7 @@ MUST:
 - Daten bleiben ohne Cloudkonto nutzbar
 - keine künstliche Bindung an einen kostenpflichtigen Dienst
 
-Vor destruktiven Aktionen soll Backup empfohlen bzw. ermöglicht werden.
+Vor destruktiven Aktionen soll Backup empfohlen bzw. ermöglicht werden. Das Wiederherstellen ersetzt den gesamten lokalen Lernstand und fragt deshalb vorher nach; aus derselben Rückfrage heraus lässt sich der jetzige Stand zuerst sichern.
 
 Proxy-Endpunkt und Zugriffsschlüssel gehören zum Gerät und stehen deshalb weder im Backup noch im Abgleich. Sonst läge der persönliche Schlüssel im Klartext in einer Datei, und ein Restore vom anderen Gerät würde die eigene Verbindung überschreiben. Beim Wiedereinlesen behält das Gerät seine eigene Verbindung.
 
@@ -791,7 +793,7 @@ Externe Browserbibliotheken können beim ersten Abruf Internet benötigen und we
 
 Die Standardschriften von PDF.js liegen mit im Vorabspeicher, sonst scheitert das Rendern von PDFs ohne eingebettete Schriften beim ersten Gebrauch ohne Netz.
 
-**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v26, Fassungskennung der Skripte `?v=26`.
+**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v27, Fassungskennung der Skripte `?v=27`.
 
 ## 29. PWA-Datenmodell
 
@@ -1033,6 +1035,8 @@ Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frü
 - Offline-Zustand ist nach Kapitel 27 sichtbar, statt sich nur in fehlschlagenden Cloud-Aufrufen zu zeigen
 - Verarbeitungsstatus bleibt am Material gespeichert und ist in Bibliothek und Materialansicht einsehbar
 - Tutorantworten ohne vollständige Quellendeckung sind als solche gekennzeichnet
+- Wiederherstellen eines Backups fragt vorher nach und bietet an, den jetzigen Stand zuerst zu sichern
+- Gestaltung liegt wieder vollständig im Stylesheet; die letzten festen Abstände im Markup sind verschwunden
 - geprüft im Browser: Lernzyklus von Evidence bis Mastery, Stabilitätsregel in allen vier Zuständen, Tagesplan mit allen Aufgabenarten, alle zehn Selbstchecks ohne Konsolenfehler
 
 ## Changelog 3.29

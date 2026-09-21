@@ -1387,8 +1387,8 @@ async function renderProfile() {
       <h2>Personal PWA</h2>
       <p class="muted">Die Lernkerndaten liegen lokal auf diesem Gerät im Browser. Kein Backend und kein Apple-Developer-Abo sind für diesen Modus erforderlich.</p>
       <span class="badge good">Offline-first</span>
-      <div class="row between" style="margin-top:14px"><span class="small muted">Installierte Fassung</span><strong class="small">${esc(await installedVersion())}</strong></div>
-      <button class="secondary full" id="check-update" style="margin-top:10px">Nach Aktualisierung suchen</button>
+      <div class="row between spaced-top"><span class="small muted">Installierte Fassung</span><strong class="small">${esc(await installedVersion())}</strong></div>
+      <button class="secondary full spaced-top" id="check-update">Nach Aktualisierung suchen</button>
     </section>
     <section class="card">
       <h2>Lernzeit</h2>
@@ -1431,7 +1431,18 @@ async function renderProfile() {
     await put("settings",settings);await generatePlan();toast("Gespeichert");
   };
   $("#export").onclick=exportBackup;
-  $("#import-backup").onclick=()=>$("#backup-import").click();
+  // Kap. 23: vor einer destruktiven Aktion wird ein Backup ermoeglicht. Ein
+  // Restore ersetzt den gesamten lokalen Lernstand; ohne Rueckfrage waere ein
+  // Fehlgriff nicht mehr umkehrbar.
+  $("#import-backup").onclick=()=>showModal(`
+    <div class="eyebrow">BACKUP WIEDERHERSTELLEN</div>
+    <h2>Lernstand ersetzen</h2>
+    <p>Beim Wiederherstellen wird der gesamte Lernstand dieses Geräts durch den Inhalt der Sicherungsdatei ersetzt: Materialien, Lernziele, Karteikarten, Evidenzen, Wissensstand, Pläne und Prüfungen.</p>
+    <p class="small muted">Die Cloud-Verbindung dieses Geräts bleibt erhalten. Rückgängig ist der Vorgang nur über ein Backup des jetzigen Standes.</p>
+    <button type="button" class="secondary full" id="backup-before-restore">Erst jetzigen Stand sichern</button>
+    <button type="button" class="danger-action" id="confirm-restore">Datei wählen und ersetzen</button>
+    <button type="button" class="secondary full" id="cancel-restore">Abbrechen</button>
+  `);
   $("#check-update").onclick=async event=>{
     const button=event.currentTarget;
     button.disabled=true;
@@ -1454,6 +1465,12 @@ async function renderProfile() {
 document.querySelectorAll(".tabbar button").forEach(b=>b.addEventListener("click",()=>{
   state.tab=b.dataset.tab; render();
 }));
+document.addEventListener("click",event=>{
+  if(event.target?.closest?.("#backup-before-restore")){exportBackup();return;}
+  if(event.target?.closest?.("#cancel-restore")){closeModal();return;}
+  if(event.target?.closest?.("#confirm-restore")){closeModal();$("#backup-import").click();}
+});
+
 $("#backup-import").addEventListener("change",async e=>{
   const f=e.target.files?.[0]; if(!f)return;
   try{await importBackup(f)}catch(err){alert(err.message)}
