@@ -117,6 +117,7 @@ Zielumfang:
 ### Importregeln
 
 - Quelldokument bleibt als eigenständige Entität erhalten.
+- Das Verarbeitungsergebnis bleibt am Dokument gespeichert: gelesene und nicht lesbare Seiten samt Seitenzahlen, Leseart je Seite, übersprungene Seiten, verworfene Dubletten sowie erzeugte Lernziele und Karteikarten. Ein Hinweis, der nach zwei Sekunden verschwindet, ist kein Verarbeitungsstatus.
 - Seiten-/Quellenbezug soll erhalten bleiben.
 - Scan-Seiten verwenden OCR-Fallback.
 - Verarbeitung darf keine halbfertigen abhängigen Daten zurücklassen.
@@ -479,7 +480,7 @@ Jedes Lernziel kann einen Tutorbereich besitzen.
 - Tutor läuft über `AIService.tutor()`.
 - Quellenkontext des Lernziels wird mitgegeben.
 - Quellseite/benachbarte Seiten können einbezogen werden.
-- Tutor soll Unsicherheit transparent machen.
+- Tutor soll Unsicherheit transparent machen: Provider und Confidence stehen an jeder Antwort, und eine nicht vollständig quellengedeckte Antwort wird ausdrücklich als solche gekennzeichnet.
 - Tutor-Verlauf wird lokal gespeichert.
 - Tutorantworten erzeugen keine Mastery-Evidence.
 - LOCAL bleibt kostenfrei und quellengebunden.
@@ -593,7 +594,7 @@ Funktionen:
 
 - Module anlegen
 - Materialien importieren
-- Verarbeitungsstatus
+- Verarbeitungsstatus je Material, in der Liste verdichtet und im Material vollständig
 - Dokument öffnen
 - Zusammenfassungen
 - Highlights
@@ -750,7 +751,7 @@ Anforderungen:
 - gute Lesbarkeit
 - konsistente Terminologie
 - sinnvolle Accessibility Labels/Hints
-- Offline-Zustand transparent
+- Offline-Zustand transparent: unterhalb der Navigation erscheint ohne Netz eine ruhige Statuszeile, die sagt, was weiterläuft und was pausiert. Sie verschwindet, sobald die Verbindung zurück ist.
 - Modus LOCAL/AUTO/CLOUD transparent
 - Provider-/Confidence-Information dort anzeigen, wo sie für Vertrauen relevant ist
 
@@ -790,7 +791,7 @@ Externe Browserbibliotheken können beim ersten Abruf Internet benötigen und we
 
 Die Standardschriften von PDF.js liegen mit im Vorabspeicher, sonst scheitert das Rendern von PDFs ohne eingebettete Schriften beim ersten Gebrauch ohne Netz.
 
-**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v25, Fassungskennung der Skripte `?v=25`.
+**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v26, Fassungskennung der Skripte `?v=26`.
 
 ## 29. PWA-Datenmodell
 
@@ -917,6 +918,8 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | Bereich | Zielstatus |
 |---|---|
 | PWA Installation / Standalone | IMPLEMENTIERT + Basis-Gerätetest |
+| Offline-Zustand sichtbar | IMPLEMENTIERT |
+| Verarbeitungsstatus je Material | IMPLEMENTIERT |
 | Lokale Datenhaltung | IMPLEMENTIERT |
 | Module/Bibliothek | IMPLEMENTIERT |
 | PDF/TXT/MD Import | IMPLEMENTIERT |
@@ -1027,6 +1030,9 @@ Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frü
 - `package.json` pinnt wieder pdfjs-dist 4.10.38; der Eintrag 6.3.289 hätte beim nächsten Neu-Vendorn die in 3.28 behobene Regression zurückgeholt
 - Standardschriften von PDF.js liegen im Vorabspeicher des Service Workers
 - Lernzeit, mittlere Antwortzeit, Trefferquote und Tempo je Aufgabenart sowie Planerfüllung ergänzen den Fortschritt; damit sind die SHOULD-Kennzahlen aus Kapitel 19 vollständig
+- Offline-Zustand ist nach Kapitel 27 sichtbar, statt sich nur in fehlschlagenden Cloud-Aufrufen zu zeigen
+- Verarbeitungsstatus bleibt am Material gespeichert und ist in Bibliothek und Materialansicht einsehbar
+- Tutorantworten ohne vollständige Quellendeckung sind als solche gekennzeichnet
 - geprüft im Browser: Lernzyklus von Evidence bis Mastery, Stabilitätsregel in allen vier Zuständen, Tagesplan mit allen Aufgabenarten, alle zehn Selbstchecks ohne Konsolenfehler
 
 ## Changelog 3.29

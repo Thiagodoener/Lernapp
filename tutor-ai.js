@@ -47,6 +47,7 @@ function tutorRenderMessages(section,thread){
       <div class="small muted">${message.role==="user"?"Du":`Tutor · ${tutorEsc(message.provider||"")}`}</div>
       <div>${tutorEsc(message.text||"")}</div>
       ${message.role==="assistant"&&Number.isFinite(message.confidence)?`<div class="source">Confidence ${Math.round(message.confidence*100)}%${message.policy?` · ${tutorEsc(message.policy)}`:""}</div>`:""}
+      ${message.role==="assistant"&&message.grounded===false?`<div class="source">Diese Antwort ist nicht vollständig durch dein Lernmaterial gedeckt. Prüfe sie an der Quelle, bevor du sie lernst.</div>`:""}
     </div>
   `).join("");
   box.scrollTop=box.scrollHeight;

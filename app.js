@@ -823,7 +823,20 @@ async function latestActiveExam() {
     .sort((a,b)=>new Date(b.startedAt)-new Date(a.startedAt))[0] || null;
 }
 
+// Kap. 27: Offline-Zustand transparent machen. Die Kernfunktionen laufen ohne
+// Netz weiter, nur die Cloud-Aufgaben nicht; genau das sagt die Zeile.
+function renderConnectionStatus() {
+  const box=$("#connection-status");
+  if(!box) return;
+  const offline=!navigator.onLine;
+  box.classList.toggle("hidden",!offline);
+  if(offline) box.textContent="Offline · Lernen, Wiederholen und Prüfen laufen weiter. Cloud-KI und Geräteabgleich pausieren, bis du wieder verbunden bist.";
+}
+window.addEventListener("online",renderConnectionStatus);
+window.addEventListener("offline",renderConnectionStatus);
+
 async function render() {
+  renderConnectionStatus();
   document.querySelectorAll(".tabbar button").forEach(b=>b.classList.toggle("active",b.dataset.tab===state.tab));
   const names={today:"Heute",library:"Bibliothek",learn:"Lernen",progress:"Fortschritt",profile:"Profil"};
   title.textContent=names[state.tab];
@@ -901,20 +914,54 @@ async function renderToday() {
   bindGoalLinks();
 }
 
+// Kap. 22: der Verarbeitungsstatus gehoert zum Material und nicht in einen
+// Hinweis, der nach zwei Sekunden verschwindet.
+const EXTRACTION_LABELS={PDF_TEXT:"Textebene",AI_VISION:"Bildverstehen",OCR:"OCR",PDF_TEXT_UNSICHER:"unsichere Textebene",TEXT:"Text"};
+
+function plural(count,singular,pluralForm) {
+  return `${count} ${count===1?singular:pluralForm}`;
+}
+
+function processingLine(doc) {
+  const p=doc.processing;
+  const parts=[plural(doc.pages?.length||0,"Seite","Seiten")];
+  if(doc.status==="PROCESSING")parts.push("wird noch verarbeitet");
+  if(p?.failedPages)parts.push(`${p.failedPages} nicht lesbar`);
+  if(p?.skippedPages)parts.push(`${p.skippedPages} ohne Lernstoff`);
+  if(p?.goals!==undefined)parts.push(plural(p.goals,"Lernziel","Lernziele"));
+  if(!p)parts.push("lokal gespeichert");
+  return parts.join(" · ");
+}
+
+function processingDetail(doc) {
+  const p=doc.processing;
+  if(!p)return `<p class="small muted">Für dieses Material liegt kein Verarbeitungsprotokoll vor; es stammt aus einer früheren Fassung.</p>`;
+  const extraction=Object.entries(p.extraction||{}).map(([key,count])=>`${count}× ${EXTRACTION_LABELS[key]||key}`).join(" · ");
+  const rows=[
+    ["Gelesene Seiten",`${p.readPages||0} von ${p.totalPages||p.readPages||0}`],
+    p.failedPages?["Nicht lesbar",`${plural(p.failedPages,"Seite","Seiten")}${p.failedPageNumbers?.length?` (${p.failedPageNumbers.slice(0,8).join(", ")})`:""}`]:null,
+    extraction?["Leseart",extraction]:null,
+    p.skippedPages!==undefined?["Ohne Lernstoff",plural(p.skippedPages,"Seite","Seiten")]:null,
+    p.duplicates!==undefined?["Verworfene Dubletten",plural(p.duplicates,"Lernziel","Lernziele")]:null,
+    p.goals!==undefined?["Erzeugt",`${plural(p.goals,"Lernziel","Lernziele")} · ${plural(p.flashcards||0,"Karteikarte","Karteikarten")}`]:null
+  ].filter(Boolean);
+  return rows.map(([label,value])=>`<div class="row between"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+}
+
 async function renderLibrary() {
   const module=await activeModule();
   const docs=(await all("documents")).filter(x=>x.moduleId===module.id);
   const goals=(await all("goals")).filter(x=>x.moduleId===module.id);
   content.innerHTML=`
     <section class="card">
-      <div class="row between"><div><h2>${esc(module.title)}</h2><div class="muted small">${docs.length} Dokumente · ${goals.length} Lernziele</div></div>
+      <div class="row between"><div><h2>${esc(module.title)}</h2><div class="muted small">${esc(plural(docs.length,"Dokument","Dokumente"))} · ${esc(plural(goals.length,"Lernziel","Lernziele"))}</div></div>
       <button class="primary" id="import-file">Material importieren</button></div>
     </section>
     <section class="card">
       <h2>Material</h2>
       ${docs.length?docs.map(d=>`
         <div class="list-item clickable" data-doc="${d.id}">
-          <div class="row between"><div><h3>${esc(d.title)}</h3><div class="muted small">${d.pages.length} Seiten · lokal gespeichert</div></div><span class="list-row-chevron" aria-hidden="true">›</span></div>
+          <div class="row between"><div><h3>${esc(d.title)}</h3><div class="muted small">${esc(processingLine(d))}</div></div><span class="list-row-chevron" aria-hidden="true">›</span></div>
         </div>`).join(""):`<div class="empty">Noch kein Material. Importiere PDF, TXT oder Markdown.</div>`}
     </section>
     <section class="card">
@@ -938,7 +985,9 @@ async function openDocument(id) {
   // dieselbe Aufgabe nebeneinander liegen.
   showModal(`
     <h2>${esc(d.title)}</h2>
-    <p class="small muted">${pages} Seiten · ${relevant} davon mit Lernstoff</p>
+    <p class="small muted">${esc(plural(pages,"Seite","Seiten"))} · ${relevant} davon mit Lernstoff</p>
+    <h3>Verarbeitung</h3>
+    ${processingDetail(d)}
     <h3>Wichtige Inhalte</h3>
     ${sentences.length
       ? sentences.slice(0,12).map(x=>`<div class="highlight">${esc(x.text)}<div class="source">Seite ${x.page}</div></div>`).join("")

@@ -118,6 +118,11 @@ async function aiImportExtractPDF(file,readAs="TEXT"){
       : "Aus der Datei konnte kein Text extrahiert werden.");
   }
   if(failed.length)aiImportToast(`${failed.length} von ${pdf.numPages} Seiten konnten nicht gelesen werden`);
+  // Kap. 4 und Kap. 22: gescheiterte Seiten werden gezaehlt und gemeldet. Ein
+  // Hinweis, der nach zwei Sekunden verschwindet, ist kein Verarbeitungsstatus,
+  // deshalb faehrt das Ergebnis bis zum Dokumentdatensatz mit.
+  pages.failedPages=failed.map(entry=>entry.page);
+  pages.totalPages=pdf.numPages;
   return pages;
 }
 
@@ -290,7 +295,10 @@ async function aiImportGenerateCards(goals,module){
 async function aiImportStudyFile(file,readAs="TEXT"){
   const module=await aiImportActiveModule();
   aiImportToast("Material wird analysiert …");
-  const pages=(await aiImportExtractFile(file,readAs)).filter(p=>String(p.text||"").trim().length>20);
+  const extracted=await aiImportExtractFile(file,readAs);
+  const failedPages=extracted.failedPages||[];
+  const totalPages=extracted.totalPages||extracted.length;
+  const pages=extracted.filter(p=>String(p.text||"").trim().length>20);
   if(!pages.length)throw new Error("Aus der Datei konnte kein Text extrahiert werden.");
   // Die Relevanzpruefung soll Ballast aus umfangreichen Dokumenten fernhalten.
   // Ein einseitiger Import ist eine bewusste Auswahl des Nutzers, etwa das Foto
@@ -303,7 +311,10 @@ async function aiImportStudyFile(file,readAs="TEXT"){
   // nicht am Material. Ein paar Aufrufe zu viel sind besser als ein Import, der
   // schweigend nichts erzeugt.
   if(!pages.some(page=>page.relevant))for(const page of pages)page.relevant=true;
-  const documentRecord={id:aiImportUid(),moduleId:module.id,title:file.name,kind:file.name.split(".").pop()?.toUpperCase()||"TEXT",pages,createdAt:aiImportNow(),status:"READY",generationPipeline:"AIService"};
+  const extractionCounts={};
+  for(const page of pages)extractionCounts[page.extraction||"TEXT"]=(extractionCounts[page.extraction||"TEXT"]||0)+1;
+  const documentRecord={id:aiImportUid(),moduleId:module.id,title:file.name,kind:file.name.split(".").pop()?.toUpperCase()||"TEXT",pages,createdAt:aiImportNow(),status:"PROCESSING",generationPipeline:"AIService",
+    processing:{readAs,totalPages,readPages:pages.length,failedPages:failedPages.length,failedPageNumbers:failedPages,extraction:extractionCounts,startedAt:aiImportNow()}};
   let stored=false;
   try{
     await aiImportPut("documents",documentRecord);stored=true;
@@ -314,6 +325,9 @@ async function aiImportStudyFile(file,readAs="TEXT"){
     const cards=await aiImportGenerateCards(goals,module);
     const planId=`${module.id}:${aiImportDayKey()}`;
     await aiImportDelete("plans",planId).catch(()=>{});
+    documentRecord.status="READY";
+    documentRecord.processing={...documentRecord.processing,skippedPages,duplicates,goals:goals.length,flashcards:cards.length,finishedAt:aiImportNow()};
+    await aiImportPut("documents",documentRecord);
     const filtered=[skippedPages?`${skippedPages} Seiten ohne Lernstoff übersprungen`:null,duplicates?`${duplicates} Dubletten verworfen`:null].filter(Boolean);
     aiImportToast(`${goals.length} Lernziele · ${cards.length} Karteikarten erstellt${filtered.length?` · ${filtered.join(" · ")}`:""}`);
     return documentRecord;
