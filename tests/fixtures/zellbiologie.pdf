@@ -1,0 +1,51 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 7 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 7 0 R >> >> /Contents 6 0 R >>
+endobj
+5 0 obj
+<< /Length 328 >>
+stream
+BT /F1 11 Tf 40 760 Td 16 TL
+(Die Zelle ist die kleinste lebensfaehige Einheit aller bekannten Lebewesen.) Tj T*
+(Die Zellmembran trennt das Innere der Zelle von ihrer Umgebung und steuert den Stoffaustausch.) Tj T*
+(Mitochondrien erzeugen durch die Atmungskette den groessten Teil des zellulaeren Energietraegers ATP.) Tj T*
+ET
+endstream
+endobj
+6 0 obj
+<< /Length 332 >>
+stream
+BT /F1 11 Tf 40 760 Td 16 TL
+(Der Zellkern enthaelt das Erbgut und steuert von dort die Herstellung der Proteine.) Tj T*
+(Ribosomen setzen aus Aminosaeuren die Proteine zusammen und arbeiten nach dem Bauplan der Boten-RNA.) Tj T*
+(Das endoplasmatische Retikulum dient dem Transport und der Reifung neu gebildeter Proteine.) Tj T*
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000373 00000 n 
+0000000752 00000 n 
+0000001135 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1205
+%%EOF

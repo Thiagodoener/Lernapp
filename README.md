@@ -49,6 +49,19 @@ python3 -m http.server 8080
 
 Dann `http://localhost:8080` öffnen.
 
+## Tests
+
+```bash
+npm install --no-save playwright
+npx http-server -p 8099 -s .
+node tests/e2e.mjs
+node tests/offline.mjs
+```
+
+Beide Tests fahren die App in einem echten Browser und prüfen die
+Abnahmekriterien der Masterspezifikation, soweit das ohne Gerät und ohne
+deployten Cloud-Proxy möglich ist. Einzelheiten in `tests/README.md`.
+
 ## iPhone / iPad
 
 Nach HTTPS-Deployment:

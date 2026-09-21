@@ -314,7 +314,7 @@ Beides dient zugleich dem Kostenprinzip: jede übersprungene Seite spart einen v
 
 Karteikarten werden in Stapeln von höchstens 20 Lernzielen erzeugt. Vorher gingen alle Lernziele eines Dokuments in einem einzigen Aufruf raus; die Nutzlast wurde serverseitig gekürzt, sodass bei umfangreichem Material ein Teil der Karten stillschweigend verloren ging. Pro Lernziel entsteht höchstens eine Karte.
 
-**Status:** PWA verwendet `ts-fsrs` 5.4.1 mit expliziten 21 FSRS-6-Parametern. Native Implementierung verwendet FSRS-6-kompatible Swift-Abhängigkeit. Manuelle Karten sind vorgesehen/implementiert.
+**Status:** PWA verwendet `ts-fsrs` 5.4.1 aus `vendor/` mit expliziten 21 FSRS-6-Parametern. Manuelle Karten sind implementiert. Die native Implementierung ist nicht Teil dieses Repositorys, siehe Kapitel 31.
 
 ## 10. Fragen, Selbsttests und freie Antworten
 
@@ -841,7 +841,9 @@ Diese Cloudarchitektur ist optional für die persönliche PWA; der persönliche 
 
 ## 31. Native iOS/iPadOS
 
-Es existiert zusätzlich ein SwiftUI-/SwiftData-Quellcodepfad mit XcodeGen-Definition.
+**Widerspruch nach Kapitel 37, ausdrücklich festgehalten:** In diesem Repository existiert kein nativer Quellcodepfad. Weder SwiftUI-Quellen noch eine XcodeGen-Definition sind je Teil dieses Repositorys gewesen; die Aussagen dieses Kapitels und der Verweis in Kapitel 9 auf eine native FSRS-Abhängigkeit beschreiben einen Stand außerhalb davon. Solange das so bleibt, gilt der native Pfad hier als nicht vorhanden und nicht als offene Arbeit dieses Projekts. Die folgenden Angaben bleiben als Zielbild stehen, falls der Pfad später hinzukommt.
+
+Zielbild: ein SwiftUI-/SwiftData-Quellcodepfad mit XcodeGen-Definition.
 
 Native Statusbezeichnung:
 
@@ -893,6 +895,8 @@ Die App bzw. Entwicklung soll regelmäßig prüfen:
 - LOCAL/AUTO/CLOUD-Parität
 
 Nach größeren Projektphasen: Master Spec aktualisieren, Changelog ergänzen, Selbstchecks ausführen, Fehler beheben und erneut testen.
+
+Zusätzlich liegen in `tests/` zwei Browsertests, die die Spezifikation gegen die ausgelieferte App prüfen. Kapitel 32 verlangt, dass Änderungen an Lernregeln testbar sind; ein Test, der nur in einer Arbeitssitzung existiert hat, erfüllt das nicht.
 
 ### Selbstcheck in der App
 
@@ -980,6 +984,8 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 
 ## 35. Abnahmekriterien für die persönliche PWA
 
+Die Kriterien 1 bis 14 und 16 bis 19 sind als automatischer Browsertest in `tests/` hinterlegt und laufen bei jeder Änderung durch: `tests/e2e.mjs` fährt Import, Lernziele, Karteikarten, FSRS-Review, Evidence, Mastery, Stabilität, freie Antwort, Prüfung, Simulation, Selbstcheck und Lösch-Cascade gegen die ausgelieferte PWA, `tests/offline.mjs` den Neustart ohne Netz. Das ersetzt den Gerätetest nicht, fängt aber jede Regression vor ihm ab.
+
 Die PWA gilt erst dann als vollständig abgenommen, wenn auf realem iPhone/iPad mindestens folgender End-to-End-Flow funktioniert:
 
 1. App installieren/öffnen.
@@ -1035,6 +1041,8 @@ Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frü
 - Offline-Zustand ist nach Kapitel 27 sichtbar, statt sich nur in fehlschlagenden Cloud-Aufrufen zu zeigen
 - Verarbeitungsstatus bleibt am Material gespeichert und ist in Bibliothek und Materialansicht einsehbar
 - Tutorantworten ohne vollständige Quellendeckung sind als solche gekennzeichnet
+- Kapitel 31 hält fest, dass der native Quellcodepfad nicht Teil dieses Repositorys ist; die Spezifikation behauptete bisher seine Existenz
+- zwei Browsertests in `tests/` prüfen die Abnahmekriterien aus Kapitel 35, soweit sie ohne Gerät und ohne deployten Proxy prüfbar sind, samt echtem PDF-Import über das vendorierte PDF.js
 - Wiederherstellen eines Backups fragt vorher nach und bietet an, den jetzigen Stand zuerst zu sichern
 - Gestaltung liegt wieder vollständig im Stylesheet; die letzten festen Abstände im Markup sind verschwunden
 - geprüft im Browser: Lernzyklus von Evidence bis Mastery, Stabilitätsregel in allen vier Zuständen, Tagesplan mit allen Aufgabenarten, alle zehn Selbstchecks ohne Konsolenfehler
