@@ -274,7 +274,7 @@ Der Proxy begrenzt den Quelltext je Aufruf. Ein vollständiges Skript passt desh
 
 Stilles Abschneiden ist nach Kapitel 3.4 unzulässig. Reicht selbst dieses Verfahren nicht aus, wird die Zahl der ausgelassenen Abschnitte im Ergebnis ausgewiesen. Die Anzahl der zusammengeführten Abschnitte wird ebenfalls angezeigt.
 
-**Status:** Zusammenfassungen über `AIService.summarize()` implementiert, abschnittsweise Verarbeitung implementiert. Highlights grundsätzlich vorhanden. Weitere Qualitätsprüfung mit realen Studienunterlagen erforderlich.
+**Status:** Zusammenfassungen über `AIService.summarize()` implementiert, abschnittsweise Verarbeitung implementiert. Highlights mit priorisierender Auswahl implementiert und im Browsertest geprüft; ihre fachliche Treffsicherheit hängt am jeweiligen Material und ist an eigenen Studienunterlagen zu beurteilen.
 
 ## 8. Lernziele
 
@@ -633,7 +633,7 @@ Funktionen:
 
 Beim Löschen eines Materials werden ausschließlich abhängige Daten dieses Materials bereinigt; andere Materialien bleiben erhalten. Wiederherstellung ist nur über vorhandenes Backup möglich.
 
-**Status:** implementiert; Lösch-Cascade auf echtem iPhone noch explizit testen.
+**Status:** implementiert. Die Lösch-Cascade ist im Browsertest geprüft: nach dem Entfernen eines Materials bleiben weder Lernziele noch Karten, Evidenzen, Mastery-Daten oder Wissenslücken zurück. Der Durchlauf am echten Gerät steht aus.
 
 ## 23. Backup, Restore und Datenportabilität
 
