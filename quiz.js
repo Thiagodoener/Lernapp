@@ -111,7 +111,7 @@ async function quizBuild(){
 // Wiedererkennen ist kein freier Abruf: die Evidence zaehlt deshalb als
 // abhaengiger Abruf und wird in der Mastery nur halb gewichtet. Die Confidence
 // bleibt niedrig, weil eine richtige Antwort auch geraten sein kann.
-async function quizRecordAnswer(cardId,isCorrect){
+async function quizRecordAnswer(cardId,isCorrect,durationMs=null){
   const card=await quizGet("flashcards",cardId);
   if(!card?.goalId)return;
   const goal=await quizGet("goals",card.goalId);
@@ -126,7 +126,8 @@ async function quizRecordAnswer(cardId,isCorrect){
     provider:"LOCAL",
     policy:"OBJECTIVE",
     source:"MULTIPLE_CHOICE",
-    cardId
+    cardId,
+    durationMs:Number.isFinite(durationMs)?Math.max(0,Math.round(durationMs)):null
   });
   await window.LernappFreeAnswerAI?.invalidateTodayPlan(goal.moduleId).catch(()=>{});
 }
@@ -152,6 +153,9 @@ function quizRun(questions,provider){
 
   function draw(){
     const question=questions[index];
+    // Kap. 19: die Antwortzeit gehoert zu den Lernstatistiken. Gemessen wird ab
+    // dem Anzeigen der Frage bis zur Auswahl.
+    const shownAt=Date.now();
     const options=quizShuffle([question.answer,...question.distractors]);
     quizShowModal(`
       <div class="row between">
@@ -187,7 +191,7 @@ function quizRun(questions,provider){
             if(index<questions.length)draw();else drawResult();
           };
         }
-        await quizRecordAnswer(question.cardId,isCorrect).catch(()=>{});
+        await quizRecordAnswer(question.cardId,isCorrect,Date.now()-shownAt).catch(()=>{});
       };
     });
   }

@@ -1,6 +1,8 @@
 const EXAM_AI_DB="lernapp-pwa";
 const EXAM_AI_DB_VERSION=2;
 let examAITimer=null;
+// Kap. 19: Antwortzeit je Pruefungsfrage, gemessen ab dem Anzeigen der Frage.
+let examAIQuestionShownAt=null;
 
 function examAIOpenDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(EXAM_AI_DB,EXAM_AI_DB_VERSION);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
 async function examAIAll(store){const db=await examAIOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readonly"),r=tx.objectStore(store).getAll();r.onsuccess=()=>resolve(r.result||[]);r.onerror=()=>reject(r.error);tx.oncomplete=()=>db.close();});}
@@ -38,6 +40,7 @@ async function examAIRenderQuestion(session){
   const remaining=Math.max(0,deadline-Date.now());
   if(remaining<=0)return examAIComplete(session);
   const item=session.items[index];const box=document.querySelector("#modal-content"),modal=document.querySelector("#modal");if(!box||!modal)return;
+  examAIQuestionShownAt=Date.now();
   box.innerHTML=`<div class="row between"><div class="eyebrow">PRÜFUNG ${index+1} / ${session.items.length} · AISERVICE</div><span class="badge" id="exam-timer">${examAIFormatTime(remaining)}</span></div><h2>${examAIEsc(item.prompt)}</h2><div class="source">${examAIEsc(item.dimension)}</div><textarea id="exam-answer" placeholder="Deine Antwort …">${examAIEsc(item.response||"")}</textarea>${examAISpeechSupported()?'<button type="button" class="secondary full" id="exam-speech">🎙 Antwort sprechen</button>':'<p class="small muted">Spracherkennung ist hier nicht verfügbar; Texteingabe funktioniert immer.</p>'}<button type="button" class="primary full" id="exam-submit">Antwort speichern</button><button type="button" class="secondary full" id="exam-finish">Prüfung beenden</button><div id="exam-ai-feedback"></div>`;
   document.querySelector("#exam-speech")?.addEventListener("click",()=>examAIStartSpeech(document.querySelector("#exam-answer")));
   examAITimer=setInterval(async()=>{if(!modal.open){clearInterval(examAITimer);examAITimer=null;return;}const left=Math.max(0,deadline-Date.now());const el=document.querySelector("#exam-timer");if(el)el.textContent=examAIFormatTime(left);if(left<=0){clearInterval(examAITimer);examAITimer=null;await examAIComplete(session);}},1000);
@@ -50,8 +53,12 @@ async function examAISubmit(){
   if(!answer){examAIToast("Bitte antworte oder beende die Prüfung.");return;}
   if(!window.LernappFreeAnswerAI?.evaluateAndPersist){examAIToast("Gemeinsame AI-Bewertung ist nicht verfügbar.");return;}
   button.disabled=true;const old=button.textContent;button.textContent="Wird ausgewertet …";
+  // Einmal messen, bevor die Bewertung laeuft: sonst zaehlte die Wartezeit auf
+  // das Modell als Antwortzeit des Lernenden mit.
+  const durationMs=examAIQuestionShownAt?Date.now()-examAIQuestionShownAt:null;
   try{
-    const {result,mastery}=await window.LernappFreeAnswerAI.evaluateAndPersist({goalId:item.goalId,answer,dimension:item.dimension||"UNDERSTANDING",question:item.prompt,context:item.answerKey||"",source:"EXAM_SIMULATION",metadata:{examId:session.examId,examSessionId:session.id,examItemId:item.id}});
+    const {result,mastery}=await window.LernappFreeAnswerAI.evaluateAndPersist({goalId:item.goalId,answer,dimension:item.dimension||"UNDERSTANDING",question:item.prompt,context:item.answerKey||"",source:"EXAM_SIMULATION",metadata:{examId:session.examId,examSessionId:session.id,examItemId:item.id,durationMs}});
+    item.durationMs=durationMs;examAIQuestionShownAt=null;
     item.response=answer;item.score=Math.max(0,Math.min(1,Number(result?.score)||0));item.answeredAt=examAINow();item.evaluationProvider=result?.provider||"UNKNOWN";item.evaluationConfidence=Math.max(0,Math.min(1,Number(result?.confidence)||0));item.evaluationPolicy=result?.policy||null;item.feedback=String(result?.feedback||"");item.masteryAfter=mastery.status;
     session.items[index]=item;await examAIPut("examSessions",session);
     if(feedback)feedback.innerHTML=`<p><strong>${Math.round(item.score*100)}% · ${examAIEsc(item.evaluationProvider)}</strong></p><p>${examAIEsc(item.feedback||"Antwort wurde ausgewertet.")}</p>`;

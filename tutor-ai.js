@@ -1,6 +1,8 @@
 const TUTOR_DB_NAME="lernapp-pwa";
 const TUTOR_DB_VERSION=2;
 let tutorCurrentGoalId=null;
+// Kap. 19: Antwortzeit der Lernkontrolle ab der ersten Eingabe.
+let tutorCheckStartedAt=null;
 
 function tutorOpenDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(TUTOR_DB_NAME,TUTOR_DB_VERSION);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
 async function tutorGet(store,id){const db=await tutorOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readonly"),r=tx.objectStore(store).get(id);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);tx.oncomplete=()=>db.close();});}
@@ -132,7 +134,7 @@ async function tutorRunCheck(goalId,dimension,answer,section){
     context:await tutorContext(goal),
     source:"TUTOR_CHECK",
     independentRecall:!tutorExplained,
-    metadata:{tutorMessageCount:thread.messages.length}
+    metadata:{tutorMessageCount:thread.messages.length,durationMs:tutorCheckStartedAt?Date.now()-tutorCheckStartedAt:null}
   });
   const output=section.querySelector("#tutor-check-result");
   if(output){
@@ -201,6 +203,8 @@ async function tutorInject(goalId){
   showQuestion();
   dimensionSelect.onchange=showQuestion;
   section.querySelector("#tutor-check-speech")?.addEventListener("click",()=>tutorStartSpeech(checkAnswer));
+  tutorCheckStartedAt=null;
+  checkAnswer?.addEventListener("input",()=>{if(tutorCheckStartedAt===null)tutorCheckStartedAt=Date.now();},{once:true});
   const checkSubmit=section.querySelector("#tutor-check-submit");
   checkSubmit.onclick=async()=>{
     const answer=checkAnswer.value.trim();

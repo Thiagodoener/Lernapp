@@ -1,4 +1,4 @@
-const VERSION = "v24";
+const VERSION = "v25";
 const CACHE = `lernapp-pwa-${VERSION}`;
 
 // Diese Dateien aendern sich mit jeder Korrektur.

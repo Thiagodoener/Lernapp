@@ -541,7 +541,13 @@ Pro Modul und Lerntag wird ein Messpunkt mit Mastery, Content Coverage, Assessme
 
 Der Fortschritt weist zusätzlich aus, wie viele Nachweise erfasst wurden, mit welcher mittleren Confidence und welcher Anteil davon unabhängiger Abruf war, wie viele Wiederholungen fällig sind, wie sich die Lernziele auf die vier Stabilitätszustände verteilen und wie die abgeschlossenen Prüfungssimulationen ausgegangen sind.
 
-**Status:** implementiert. Offen bleiben die SHOULD-Kennzahlen Lernzeit, Antwortzeiten, Performance nach Fragetyp und Planerfüllung.
+### Lernzeit, Antwortzeit und Planerfüllung
+
+Jede Lernaktivität misst ihre eigene Antwortzeit und legt sie in der Evidence ab: Karteikarte und Quiz ab dem Anzeigen der Frage, Selbsttest und „Prüf mich“ ab der ersten Eingabe, die Prüfungssimulation ab dem Anzeigen der Frage bis zum Absenden, jeweils ohne die Wartezeit auf die Bewertung. Gemessen wird damit die reine Lernzeit, nicht die Zeit mit geöffneter App; eine Aktivität ohne gemessene Zeit wird nicht geschätzt, sondern ausgelassen.
+
+Daraus entstehen Lernzeit heute und über sieben Tage, die mittlere Antwortzeit als Median, die Trefferquote und das Tempo je Aufgabenart sowie die Planerfüllung als Anteil erledigter Aufgaben an den Tagen, an denen überhaupt ein Plan bestand. Tage ohne Plan zählen nicht mit, weil sie die Quote sonst künstlich drücken würden.
+
+**Status:** implementiert, MUST und SHOULD vollständig.
 
 ## 20. Gamification
 
@@ -784,7 +790,7 @@ Externe Browserbibliotheken können beim ersten Abruf Internet benötigen und we
 
 Die Standardschriften von PDF.js liegen mit im Vorabspeicher, sonst scheitert das Rendern von PDFs ohne eingebettete Schriften beim ersten Gebrauch ohne Netz.
 
-**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v24, Fassungskennung der Skripte `?v=24`.
+**Status:** PWA auf echtem iPhone bereits installiert und grundsätzlich standalone gestartet. Aktueller Service-Worker-Cache: v25, Fassungskennung der Skripte `?v=25`.
 
 ## 29. PWA-Datenmodell
 
@@ -948,7 +954,7 @@ Der Selbstcheck meldet ausschließlich Befunde und verändert niemals Daten. Aut
 | Tutor | IMPLEMENTIERT |
 | Tutor „Prüf mich“ | IMPLEMENTIERT |
 | Speech | IMPLEMENTIERT als Progressive Enhancement, Gerätetest offen |
-| Analytics | IMPLEMENTIERT, SHOULD-Kennzahlen Lernzeit/Antwortzeit/Planerfüllung offen |
+| Analytics | IMPLEMENTIERT inklusive Lernzeit, Antwortzeit, Fragetyp und Planerfüllung |
 | Fortschrittsverlauf über die Zeit | IMPLEMENTIERT |
 | Zusammenfassung umfangreicher Dokumente | IMPLEMENTIERT |
 | Streak | IMPLEMENTIERT |
@@ -999,11 +1005,10 @@ Die verbleibenden Punkte sind ausschließlich externe Tests an realer Hardware u
 1. Geräteabgleich mit zwei echten Geräten durchspielen.
 2. Alle sieben CLOUD-AIService-Funktionen E2E testen, insbesondere `analyzeImage` mit einer echten handschriftlichen Mitschrift.
 3. Highlights inhaltlich gegen reale Studienunterlagen prüfen.
-4. SHOULD-Kennzahlen aus Kapitel 19 ergänzen: Lernzeit, Antwortzeiten, Performance nach Fragetyp, Planerfüllung.
-5. Erweiterte Gamification bewerten, soweit sie das Lernen stützt.
-6. Knowledge Map bewerten.
-7. vollständigen iPhone/iPad-Abnahmetest nach Kapitel 35 durchführen.
-8. danach Release Candidate der persönlichen PWA erstellen.
+4. Erweiterte Gamification bewerten, soweit sie das Lernen stützt (OPTIONAL nach Kapitel 2 und 20).
+5. Knowledge Map bewerten (OPTIONAL nach Kapitel 2).
+6. vollständigen iPhone/iPad-Abnahmetest nach Kapitel 35 durchführen.
+7. danach Release Candidate der persönlichen PWA erstellen.
 
 ## 37. Änderungsregel
 
@@ -1021,6 +1026,7 @@ Diese Datei ist ab Version 3.15 verbindlich die **Single Source of Truth**. Frü
 - Selbstcheck prüft Stabilitätszustand, Evidenzherkunft und zulässige Lückentypen
 - `package.json` pinnt wieder pdfjs-dist 4.10.38; der Eintrag 6.3.289 hätte beim nächsten Neu-Vendorn die in 3.28 behobene Regression zurückgeholt
 - Standardschriften von PDF.js liegen im Vorabspeicher des Service Workers
+- Lernzeit, mittlere Antwortzeit, Trefferquote und Tempo je Aufgabenart sowie Planerfüllung ergänzen den Fortschritt; damit sind die SHOULD-Kennzahlen aus Kapitel 19 vollständig
 - geprüft im Browser: Lernzyklus von Evidence bis Mastery, Stabilitätsregel in allen vier Zuständen, Tagesplan mit allen Aufgabenarten, alle zehn Selbstchecks ohne Konsolenfehler
 
 ## Changelog 3.29

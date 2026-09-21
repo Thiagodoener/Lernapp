@@ -1,6 +1,7 @@
 const FREE_AI_DB="lernapp-pwa";
 const FREE_AI_DB_VERSION=2;
 let freeAICurrentGoalId=null;
+let freeAIAnswerStartedAt=null;
 
 function freeAIOpenDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(FREE_AI_DB,FREE_AI_DB_VERSION);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
 async function freeAIGet(store,id){const db=await freeAIOpenDB();return new Promise((resolve,reject)=>{const tx=db.transaction(store,"readonly"),r=tx.objectStore(store).get(id);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);tx.oncomplete=()=>db.close();});}
@@ -55,7 +56,13 @@ async function freeAIEvaluateSelfTest(goalId,answer){
 
 document.addEventListener("click",event=>{
   const goalLink=event.target.closest?.("[data-open-goal]");
-  if(goalLink?.dataset.openGoal)freeAICurrentGoalId=goalLink.dataset.openGoal;
+  if(goalLink?.dataset.openGoal){freeAICurrentGoalId=goalLink.dataset.openGoal;freeAIAnswerStartedAt=null;}
+},true);
+
+// Kap. 19: gemessen wird ab der ersten Eingabe, nicht ab dem Oeffnen des
+// Lernziels. Sonst zaehlte auch das Lesen der Quelle als Antwortzeit.
+document.addEventListener("input",event=>{
+  if(event.target?.id==="self-answer"&&freeAIAnswerStartedAt===null)freeAIAnswerStartedAt=Date.now();
 },true);
 
 document.addEventListener("click",async event=>{
@@ -68,7 +75,9 @@ document.addEventListener("click",async event=>{
   if(!answer){freeAIToast("Bitte gib zuerst eine Antwort ein.");return;}
   button.disabled=true;const old=button.textContent;button.textContent="Wird ausgewertet …";
   try{
-    const {result,mastery}=await freeAIEvaluateSelfTest(freeAICurrentGoalId,answer);
+    const durationMs=freeAIAnswerStartedAt?Date.now()-freeAIAnswerStartedAt:null;
+    const {result,mastery}=await freeAIEvaluateAndPersist({goalId:freeAICurrentGoalId,answer,dimension:"UNDERSTANDING",source:"SELF_TEST",metadata:{durationMs}});
+    freeAIAnswerStartedAt=null;
     const score=Math.round(freeAIClamp(result?.score)*100);
     const provider=result?.provider||"UNKNOWN";
     const policy=result?.policy?` · ${freeAIEsc(result.policy)}`:"";

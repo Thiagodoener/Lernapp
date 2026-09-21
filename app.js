@@ -288,7 +288,7 @@ async function addEvidence(entry) {
   return window.LernappMastery.addEvidence(entry);
 }
 
-async function rateCard(card,rating,answerRevealed=true) {
+async function rateCard(card,rating,answerRevealed=true,durationMs=null) {
   const scheduled = await scheduleFSRS(
     card.fsrsCard,
     rating
@@ -326,7 +326,8 @@ async function rateCard(card,rating,answerRevealed=true) {
     provider:"LOCAL",
     policy:"SELF_RATING",
     source:"FLASHCARD_REVIEW",
-    cardId:card.id
+    cardId:card.id,
+    durationMs:Number.isFinite(durationMs)?Math.max(0,Math.round(durationMs)):null
   });
   await generatePlan();
 }
@@ -1016,6 +1017,8 @@ async function renderLearn() {
 async function reviewCard(cards,index) {
   if(index>=cards.length){ closeModal(); toast("Reviews erledigt"); return renderLearn(); }
   const card=cards[index];
+  // Kap. 19: Antwortzeit ab dem Anzeigen der Karte bis zur Selbsteinschaetzung.
+  const shownAt=Date.now();
   showModal(`
     <div class="eyebrow">KARTE ${index+1} / ${cards.length}</div>
     <h2>${esc(card.prompt)}</h2>
@@ -1032,7 +1035,7 @@ async function reviewCard(cards,index) {
     </div>`);
   $("#reveal").onclick=()=>{$("#review-answer").classList.remove("hidden");$("#ratings").classList.remove("hidden");$("#reveal").classList.add("hidden")};
   modalContent.querySelectorAll("[data-rate]").forEach(b=>b.onclick=async()=>{
-    await rateCard(card,Number(b.dataset.rate),true); reviewCard(cards,index+1);
+    await rateCard(card,Number(b.dataset.rate),true,Date.now()-shownAt); reviewCard(cards,index+1);
   });
 }
 
@@ -1110,6 +1113,41 @@ async function renderProgress() {
   const stabilityLabels={STABLE:"Verankert",UNSTABLE:"Noch nicht verankert",DECAYING:"Zerfällt",UNKNOWN:"Ohne Wiederholung"};
   const stabilityCounts={STABLE:0,UNSTABLE:0,DECAYING:0,UNKNOWN:0};
   for(const m of ms)stabilityCounts[m.stability||"UNKNOWN"]=(stabilityCounts[m.stability||"UNKNOWN"]||0)+1;
+  // Kap. 19 SHOULD: Lernzeit, Antwortzeiten, Performance nach Fragetyp und
+  // Planerfuellung. Grundlage ist die je Lernaktivitaet gemessene Dauer in der
+  // Evidence; wo keine Zeit vorliegt, wird nichts geschaetzt.
+  const timed=moduleEvidence.filter(e=>Number.isFinite(e.durationMs)&&e.durationMs>0);
+  const timeToday=timed.filter(e=>dayKey(e.createdAt)===dayKey()).reduce((sum,e)=>sum+e.durationMs,0);
+  const timeWeek=timed.filter(e=>daysUntil(dayKey(e.createdAt))>=-6).reduce((sum,e)=>sum+e.durationMs,0);
+  const medianAnswerMs=(()=>{
+    if(!timed.length)return 0;
+    const sorted=timed.map(e=>e.durationMs).sort((x,y)=>x-y);
+    const mid=Math.floor(sorted.length/2);
+    return sorted.length%2?sorted[mid]:(sorted[mid-1]+sorted[mid])/2;
+  })();
+  const SOURCE_LABELS={FLASHCARD_REVIEW:"Karteikarte",MULTIPLE_CHOICE:"Quiz",SELF_TEST:"Selbsttest",TUTOR_CHECK:"Prüf mich",EXAM_SIMULATION:"Prüfungssimulation",UNSPECIFIED:"Ohne Angabe"};
+  const bySource=new Map();
+  for(const e of moduleEvidence){
+    const key=e.source||"UNSPECIFIED";
+    const row=bySource.get(key)||{count:0,score:0,time:0,timed:0};
+    row.count++;row.score+=Number(e.score)||0;
+    if(Number.isFinite(e.durationMs)&&e.durationMs>0){row.time+=e.durationMs;row.timed++;}
+    bySource.set(key,row);
+  }
+  // Planerfuellung der letzten sieben Lerntage, an denen ueberhaupt ein Plan
+  // erzeugt wurde. Tage ohne Plan wuerden die Quote sonst kuenstlich druecken.
+  const recentPlans=(await all("plans"))
+    .filter(p=>p.moduleId===module.id&&(p.tasks||[]).length&&daysUntil(p.date)>=-6)
+    .sort((x,y)=>String(x.date).localeCompare(String(y.date)));
+  const plannedTasks=recentPlans.reduce((sum,p)=>sum+p.tasks.length,0);
+  const doneTasks=recentPlans.reduce((sum,p)=>sum+p.tasks.filter(t=>t.status==="DONE").length,0);
+  const planFulfilment=plannedTasks?doneTasks/plannedTasks:0;
+  const formatDuration=ms=>{
+    const minutes=Math.round(ms/60000);
+    if(minutes>=60)return `${Math.floor(minutes/60)} h ${minutes%60} min`;
+    if(minutes>=1)return `${minutes} min`;
+    return `${Math.max(0,Math.round(ms/1000))} s`;
+  };
   const simulations=(await all("examSessions"))
     .filter(x=>x.moduleId===module.id&&x.status==="COMPLETED")
     .sort((a,b)=>String(b.completedAt||"").localeCompare(String(a.completedAt||"")));
@@ -1171,6 +1209,19 @@ async function renderProgress() {
       <div class="row between"><span>Davon unabhängiger Abruf</span><strong>${Math.round(independentShare*100)}%</strong></div>
       <div class="row between"><span>Fällige Wiederholungen</span><strong>${dueCards.length}</strong></div>
       <p class="small muted">Wiedererkennung und angezeigte Antworten zählen nur halb, weil sie keinen freien Abruf belegen.</p>
+    </section>
+    <section class="card"><h2>Lernzeit und Tempo</h2>
+      <div class="row between"><span>Heute gelernt</span><strong>${esc(formatDuration(timeToday))}</strong></div>
+      <div class="row between"><span>Letzte 7 Tage</span><strong>${esc(formatDuration(timeWeek))}</strong></div>
+      <div class="row between"><span>Mittlere Antwortzeit</span><strong>${timed.length?esc(formatDuration(medianAnswerMs)):"–"}</strong></div>
+      ${progressBar("Planerfüllung",planFulfilment,`${doneTasks} von ${plannedTasks} Aufgaben an ${recentPlans.length} geplanten Tag${recentPlans.length===1?"":"en"}`)}
+      <p class="small muted">Gemessen wird die reine Antwortzeit der Lernaktivitäten, nicht die Zeit mit geöffneter App.</p>
+    </section>
+    <section class="card"><h2>Nach Aufgabenart</h2>
+      ${bySource.size?[...bySource.entries()].sort((x,y)=>y[1].count-x[1].count).map(([key,row])=>`<div class="list-item">
+        <div class="row between"><span>${esc(SOURCE_LABELS[key]||key)}</span><strong>${Math.round(row.score/row.count*100)}%</strong></div>
+        <div class="small muted">${row.count} Nachweis${row.count===1?"":"e"}${row.timed?` · im Mittel ${esc(formatDuration(row.time/row.timed))}`:""}</div>
+      </div>`).join(""):`<div class="empty">Noch keine Lernaktivität ausgewertet.</div>`}
     </section>
     <section class="card">
       <h2>Verlauf</h2>
